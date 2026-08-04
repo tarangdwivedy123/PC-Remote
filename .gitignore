@@ -27,3 +27,7 @@ desktop.ini
 # logs
 *.log
 npm-debug.log*
+
+# scratch files from debugging sessions
+probe-*.mts
+dbg*.mts
