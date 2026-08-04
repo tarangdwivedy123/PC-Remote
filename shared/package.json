@@ -1,0 +1,16 @@
+{
+  "name": "@pcr/shared",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Types and wire protocol shared by the agent and the phone client. Intentionally has ZERO runtime dependencies so it adds nothing to the mobile bundle.",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

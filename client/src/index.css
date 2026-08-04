@@ -1,0 +1,408 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Palette
+   ---------------------------------------------------------------------------
+   Dark is the default and the one the project was designed around: the phone
+   sits on a desk with the screen on for hours, so pure black is the surface
+   (unlit AMOLED pixels draw no power and cannot burn in) and every accent is
+   desaturated well below full brightness.
+
+   Light exists for a lit room, where near-black is genuinely hard to read. It is
+   not a straight inversion — the accents are darkened rather than reused,
+   because a colour tuned to glow on black is far too pale on white.
+
+   `--chart-*` are read by JavaScript (uPlot takes colour strings, not classes),
+   so they must be resolvable from the document element in both themes.
+--------------------------------------------------------------------------- */
+:root,
+.theme-dark {
+  color-scheme: dark;
+
+  --ink-950: #000000;
+  --ink-900: #060709;
+  --ink-800: #0b0d10;
+  --ink-700: #12151a;
+  --ink-600: #191d23;
+  --ink-500: #222730;
+
+  --line: #1e2229;
+  --line-bright: #2b313a;
+
+  --fg: #d7dade;
+  --fg-dim: #969ca6;
+  --fg-faint: #5f6670;
+
+  --accent: #2f8f86;
+  --accent-dim: #1c554f;
+  --accent-bright: #43ab9f;
+
+  --warn: #8a7333;
+  --warn-bright: #c2a24a;
+
+  --danger: #8f3a3a;
+  --danger-dim: #341a1a;
+  --danger-bright: #b85252;
+
+  --chart-cpu: #43ab9f;
+  --chart-mem: #6b8fc4;
+  --chart-primary: #43ab9f;
+  --chart-secondary: #c2a24a;
+  --chart-gpu: #a06bc4;
+  --chart-mic: #43ab9f;
+  --icon: #c9c9cd;
+}
+
+.theme-light {
+  color-scheme: light;
+
+  --ink-950: #f6f7f9;
+  --ink-900: #ffffff;
+  --ink-800: #ffffff;
+  /* The "raised" steps invert: on light they are subtle greys rather than
+     lighter blacks, so pressed states still read as a change. */
+  --ink-700: #e8eaee;
+  --ink-600: #dcdfe5;
+  --ink-500: #cdd2da;
+
+  --line: #d8dce2;
+  --line-bright: #bcc3cc;
+
+  --fg: #1b1e23;
+  --fg-dim: #4d545e;
+  --fg-faint: #767d88;
+
+  --accent: #1f6b64;
+  --accent-dim: #a9d3ce;
+  --accent-bright: #16564f;
+
+  --warn: #8a6a1f;
+  --warn-bright: #7a5c14;
+
+  --danger: #a33a3a;
+  --danger-dim: #f6dede;
+  --danger-bright: #8d2f2f;
+
+  --chart-cpu: #1f6b64;
+  --chart-mem: #3a5f92;
+  --chart-primary: #1f6b64;
+  --chart-secondary: #8a6a1f;
+  --chart-gpu: #6b3f8f;
+  --chart-mic: #1f6b64;
+  --icon: #3a3f47;
+}
+
+/*
+  Old-Chrome ground rules for everything in this app:
+
+  - No `gap` on a flex container. Flexbox gap did not ship until Chrome 84 and
+    it fails silently, collapsing spacing to zero. Use `grid` + `gap-*`, or the
+    margin-based `space-x-*` / `space-y-*` utilities.
+  - No `aspect-ratio` (Chrome 88). Use the `.ratio-1x1` helper below.
+  - No `:has()`, container queries, or `backdrop-filter`.
+  - No `dvh` / `svh` units (Chrome 108). Plain `vh` only.
+  - No `inset` shorthand (Chrome 87). Use top/right/bottom/left.
+*/
+
+@layer base {
+  html {
+    /* Stops iOS/Android from re-flowing text when the device rotates. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    background-color: #000;
+  }
+
+  body {
+    @apply bg-ink-950 text-fg font-sans antialiased;
+    /* Suppresses the 300ms double-tap-to-zoom delay without disabling
+       pinch-zoom, which `maximum-scale=1` in the viewport tag would have. */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+    min-height: 100vh;
+  }
+
+  /* Chrome 70 has no `accent-color`; controls are styled explicitly instead. */
+  button,
+  input,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    -webkit-appearance: none;
+    appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  /* Chrome on Android draws a bright focus ring by default; keep it visible for
+     keyboard users but drop it for touch, which reports :focus without
+     :focus-visible support on very old builds. */
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid #2f8f86;
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: #1c554f;
+    color: #d7dade;
+  }
+}
+
+@layer components {
+  /*
+    Section card. Border rather than a lighter fill: a large raised surface is
+    exactly the sort of persistent bright area to avoid on an always-on AMOLED
+    panel, so structure comes from 1px lines instead.
+  */
+  .card {
+    @apply border border-line rounded-card bg-ink-900;
+  }
+
+  .card-header {
+    @apply flex items-center justify-between px-4 pt-3 pb-2;
+  }
+
+  .card-title {
+    @apply text-xs font-semibold uppercase tracking-wider text-fg-faint;
+  }
+
+  /* Every interactive element clears the 48px touch minimum. */
+  .touch-target {
+    @apply min-h-touch min-w-touch inline-flex items-center justify-center select-none;
+  }
+
+  .btn {
+    @apply touch-target rounded-card border border-line bg-ink-800 px-4 text-fg;
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+
+  /* :active rather than :hover — a phone has no hover, and Chrome's sticky
+     hover emulation would leave a button looking pressed after a tap. */
+  .btn:active {
+    @apply bg-ink-600 border-line-bright;
+  }
+
+  .btn[disabled] {
+    @apply text-fg-faint border-line bg-ink-900;
+    cursor: default;
+  }
+
+  .btn-accent {
+    @apply border-accent-dim text-accent-bright;
+  }
+  .btn-accent:active {
+    @apply bg-accent-dim text-fg;
+  }
+
+  .btn-danger {
+    @apply border-danger text-danger-bright;
+  }
+  .btn-danger:active {
+    @apply bg-danger text-fg;
+  }
+
+  /* Square box without `aspect-ratio`: a zero-height block whose padding is a
+     percentage of its own width, with the content absolutely positioned. */
+  .ratio-1x1 {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-bottom: 100%;
+    overflow: hidden;
+  }
+  .ratio-1x1 > * {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .numeric {
+    @apply font-mono tabular-nums;
+  }
+}
+
+@layer utilities {
+  /* Safe-area padding for phones with a notch or gesture bar. env() is
+     unsupported before Chrome 69 and degrades to the fallback of 0. */
+  .pb-safe {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+  .pt-safe {
+    padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+  }
+}
+
+/* Range sliders.
+   `appearance: none` plus an explicit thumb is the only way to get a touch
+   target big enough on a phone; the platform default is around 12px, which is
+   unusable one-handed. Vendor-prefixed pseudo-elements cannot be combined into
+   one rule — a selector list is dropped wholesale if any part is unrecognised,
+   so WebKit and Firefox need separate blocks. */
+.pcr-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  /* 48px of touch target, with a visually thinner track drawn inside it. */
+  height: 48px;
+  background: transparent;
+  outline: none;
+  /* Keep vertical page scrolling working when a drag starts on the slider. */
+  touch-action: pan-y;
+}
+
+.pcr-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  /* The filled portion, without needing a second element behind the input. */
+  background: linear-gradient(
+    to right,
+    var(--pcr-slider-accent, #43ab9f) 0%,
+    var(--pcr-slider-accent, #43ab9f) var(--pcr-slider-pct, 0%),
+    #2a2a2e var(--pcr-slider-pct, 0%),
+    #2a2a2e 100%
+  );
+}
+
+.pcr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #e8e8ea;
+  border: 2px solid #0a0a0b;
+  /* Centres a 26px thumb on a 6px track: (6 - 26) / 2 */
+  margin-top: -10px;
+}
+
+.pcr-slider:disabled::-webkit-slider-thumb {
+  background: #4a4a4e;
+}
+
+.pcr-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #2a2a2e;
+}
+
+.pcr-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--pcr-slider-accent, #43ab9f);
+}
+
+.pcr-slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #e8e8ea;
+  border: 2px solid #0a0a0b;
+}
+
+/* Respect the OS reduced-motion setting for the spinner and pulse animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Landscape on a phone
+   ---------------------------------------------------------------------------
+   A phone on its side has room for several cards abreast, and the point of
+   propping it on a desk is seeing everything at once.
+
+   The columns are real elements (see Dashboard), not CSS multi-column. That is
+   deliberate: `columns` balances to the height of its content and then stops, so
+   a screen with more room than content ends up with a wide empty band along the
+   bottom. A flex row of full-height columns can be told to fill the viewport,
+   and the cards inside share whatever is left over.
+
+   The condition is `orientation: landscape` plus a generous height ceiling, not
+   a tight height threshold. An earlier version used `max-height: 520px`, which
+   sounds like "a phone on its side" but is not: a 6.5" 1080x2400 phone at DPR 2
+   is 540 CSS pixels tall in landscape, so it missed the very devices it was for.
+   700px still excludes a full-size tablet (768-800 tall), which has the height
+   for the roomier single column.
+--------------------------------------------------------------------------- */
+@media (orientation: landscape) and (max-height: 700px) and (min-width: 500px) {
+  .dashboard-cols {
+    /* No flex `gap`: that is Chrome 84, and this targets 70. Spacing comes from
+       per-column padding instead. */
+    align-items: stretch;
+  }
+
+  .dashboard-col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0.1875rem;
+    /* A column with more content than height scrolls on its own rather than
+       pushing the whole page out of shape. */
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Cards share the leftover height, starting from their natural size. */
+  .dashboard-col > * {
+    flex: 1 1 auto;
+    margin: 0 0 0.375rem 0 !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-col > *:last-child {
+    margin-bottom: 0 !important;
+  }
+
+  /* The card body absorbs the growth and spreads its rows into it, instead of
+     leaving a pool of blank space beneath the last one. */
+  .dashboard-col .card > div:last-child {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-bottom: 0.375rem;
+  }
+
+  /* --- reclaiming vertical space -----------------------------------------
+     What this deliberately does NOT do is shrink a control below the 48px touch
+     target: a dashboard you cannot hit accurately is worse than one that
+     scrolls. The space comes from the gaps around things instead.
+  ------------------------------------------------------------------------ */
+  .dashboard-col .card-header {
+    padding-top: 0.25rem;
+    padding-bottom: 0.125rem;
+    flex: 0 0 auto;
+  }
+
+  .dashboard-col .card-title {
+    font-size: 0.6875rem;
+  }
+
+  /* The status bar does not need to be as tall as a control. */
+  .pt-safe {
+    padding-top: 0;
+  }
+
+}

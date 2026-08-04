@@ -1,0 +1,17 @@
+{
+  // Root config. Each workspace typechecks through its own tsconfig, so this
+  // compiles nothing itself ("files": []). It exists to give editors sane
+  // defaults for files that live outside a workspace — notably the .mts scripts
+  // in scripts/verify.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "files": []
+}

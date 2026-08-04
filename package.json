@@ -1,0 +1,31 @@
+{
+  "name": "pc-remote",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LAN-only PC remote control: Node agent on Windows + mobile PWA dashboard",
+  "workspaces": [
+    "shared",
+    "agent",
+    "client"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n agent,client -c cyan,magenta \"npm:dev:agent\" \"npm:dev:client\"",
+    "dev:agent": "npm --workspace @pcr/agent run dev",
+    "dev:client": "npm --workspace @pcr/client run dev",
+    "build": "npm run build:client && npm run build:agent",
+    "build:client": "npm --workspace @pcr/client run build",
+    "build:agent": "npm --workspace @pcr/agent run build",
+    "start": "npm --workspace @pcr/agent run start",
+    "typecheck": "npm --workspace @pcr/shared run typecheck && npm --workspace @pcr/agent run typecheck && npm --workspace @pcr/client run typecheck",
+    "verify": "tsx scripts/verify/index.mts",
+    "clean": "node -e \"const{rmSync}=require('fs');for(const p of ['agent/dist','client/dist','helper/bin','helper/obj'])rmSync(p,{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}

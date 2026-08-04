@@ -1,0 +1,29 @@
+{
+  "name": "@pcr/agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "LAN-only remote control agent. Runs on the Windows PC, serves the phone client.",
+  "main": "dist/agent.mjs",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts -- --dev-client-port 5173",
+    "build": "node build.mjs",
+    "start": "node dist/agent.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.0.4",
+    "@fastify/websocket": "^11.0.2",
+    "@pcr/shared": "*",
+    "fastify": "^5.2.1",
+    "qrcode": "^1.5.4",
+    "systeminformation": "^5.25.11",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      No maximum-scale: pinch-zoom stays available for accessibility. Accidental
+      double-tap zoom is suppressed with `touch-action: manipulation` in CSS
+      instead, which is the targeted fix.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="LAN remote control for a Windows PC" />
+    <!--
+      The manifest is what makes Chrome's "Add to Home screen" produce a real
+      standalone launcher rather than a browser bookmark.
+
+      There is deliberately no service worker. One would satisfy Chrome's
+      *automatic* install-prompt criteria, but the only thing it could usefully
+      cache is the app shell — and a stale shell served after an agent upgrade is
+      a genuinely annoying failure to diagnose. Manual "Add to Home screen" works
+      from the manifest alone, and this dashboard is useless without the agent
+      reachable anyway, so there is nothing to gain offline.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <!-- Old Chrome on Android reads this for the "Add to Home screen" shell. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>PC Remote</title>
+    <style>
+      /*
+        Inlined so the screen is black before the CSS bundle arrives. On an
+        AMOLED panel a white first-paint flash is genuinely unpleasant in a dark
+        room, and it is the first thing you would notice on every launch.
+      */
+      html,
+      body {
+        margin: 0;
+        background: #000;
+        color: #d7dade;
+      }
+      #root:empty::after {
+        content: 'Loading…';
+        display: block;
+        padding: 2rem;
+        font: 16px -apple-system, Roboto, Arial, sans-serif;
+        color: #5f6670;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p style="padding: 2rem; font-family: sans-serif">
+        This dashboard needs JavaScript enabled.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

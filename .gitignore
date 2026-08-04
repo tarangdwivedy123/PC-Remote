@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# agent runtime data (contains the PIN and issued tokens — never commit)
+data/
+config.json
+*.local.json
+
+# vendored Windows binaries (see README for download instructions)
+vendor/*.exe
+vendor/*.zip
+
+# C# helper build output
+helper/bin/
+helper/obj/
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# logs
+*.log
+npm-debug.log*
