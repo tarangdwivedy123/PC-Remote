@@ -145,6 +145,43 @@ export class AuthService {
     return this.#config.current.pin;
   }
 
+  /**
+   * Single-use code carried in the QR code, so scanning it pairs the phone
+   * without anyone typing a PIN.
+   *
+   * In memory only, never written to disk: it is regenerated on every start and
+   * whenever one is spent, so there is nothing worth persisting. It is also much
+   * longer than the 6-digit PIN — a PIN is only a million possibilities and
+   * leans on the rate limiter, whereas this is 256 bits and could be published
+   * without being guessable.
+   *
+   * The trust model is unchanged. The code is only ever shown as a QR on the
+   * PC's own screen, so anyone able to scan it is standing in front of the
+   * machine — exactly the assumption the printed PIN already makes.
+   */
+  #pairingCode = randomBytes(32).toString('base64url');
+
+  get pairingCode(): string {
+    return this.#pairingCode;
+  }
+
+  /** Rotates the code, so a QR that was photographed cannot be reused later. */
+  rotatePairingCode(): string {
+    this.#pairingCode = randomBytes(32).toString('base64url');
+    return this.#pairingCode;
+  }
+
+  /**
+   * Checks a code and immediately invalidates it. Constant-time so the response
+   * cannot be used to narrow the value down a character at a time.
+   */
+  consumePairingCode(candidate: unknown): boolean {
+    if (typeof candidate !== 'string') return false;
+    if (!safeEqual(candidate, this.#pairingCode)) return false;
+    this.rotatePairingCode();
+    return true;
+  }
+
   verifyPin(candidate: unknown): boolean {
     if (typeof candidate !== 'string') return false;
     const trimmed = candidate.trim();

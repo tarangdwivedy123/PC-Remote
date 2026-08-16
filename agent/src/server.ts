@@ -191,7 +191,28 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
 
     const body = request.body as Record<string, unknown> | undefined;
     const pin = body?.['pin'];
+    const code = body?.['code'];
     const rawName = body?.['deviceName'];
+
+    /**
+     * Two ways in. The QR carries a single-use code so scanning it pairs
+     * outright; typing the PIN by hand still works for anyone entering the
+     * address manually.
+     *
+     * The code path deliberately skips the throttle: it is 256 bits, so there is
+     * nothing to brute force, and counting a mistyped code against the PIN
+     * lockout would let a broken QR lock someone out of their own machine.
+     */
+    if (typeof code === 'string' && code.length > 0) {
+      if (!auth.consumePairingCode(code)) {
+        log.warn(`rejected an expired or unknown pairing code from ${ip}`);
+        return reply.code(401).send({ error: 'That pairing code has already been used. Show the QR code again.' } satisfies PairErrorResponse);
+      }
+      const label = typeof rawName === 'string' ? rawName : 'phone';
+      const token = auth.issueToken(label);
+      log.info(`paired "${label}" by QR code`);
+      return reply.send({ token, host, protocol: PROTOCOL_VERSION } satisfies PairResponse);
+    }
 
     if (!auth.verifyPin(pin)) {
       const lockout = auth.throttle.recordFailure(ip);

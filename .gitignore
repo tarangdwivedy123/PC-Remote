@@ -31,3 +31,6 @@ npm-debug.log*
 # scratch files from debugging sessions
 probe-*.mts
 dbg*.mts
+
+# Build artifacts: the exe and installer are attached to releases, not committed.
+release/

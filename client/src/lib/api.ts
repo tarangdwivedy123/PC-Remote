@@ -88,6 +88,20 @@ export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health', {}, false);
 }
 
+/**
+ * Pairs using the single-use code carried in the QR code.
+ *
+ * Kept separate from the PIN call because the failure modes differ: a spent code
+ * is not a wrong password, it is a stale QR, and the phone should say so rather
+ * than implying the user got something wrong.
+ */
+export function pairWithCode(code: string): Promise<PairResponse> {
+  return request<PairResponse>('/api/pair', {
+    method: 'POST',
+    body: JSON.stringify({ code, deviceName: getDeviceName() }),
+  });
+}
+
 export function pair(pin: string): Promise<PairResponse> {
   return request<PairResponse>(
     '/api/pair',

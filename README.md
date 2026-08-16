@@ -7,6 +7,11 @@ A Node service runs on the PC and serves a mobile web dashboard. **There is no
 Android app** — you open a URL in Chrome and optionally "Add to Home screen".
 Everything stays on your LAN; there is no cloud service, relay, or account.
 
+**Just want to use it?** Download the installer from
+[the download page](https://tarangdwivedy123.github.io/PC-Remote/), run it, and
+scan the QR code that appears. Nothing below this line is needed for that — the
+rest of this file is for working on the code.
+
 ```
    PC (Windows 11)                      Phone (Chrome, on the same Wi-Fi)
    ┌──────────────────────┐             ┌──────────────────────────┐
@@ -85,10 +90,67 @@ The agent prints a banner with the URL to open, a scannable QR code, and a
     http://100.64.0.7:8765  Tailscale  (CGNAT range, virtual/VPN adapter)
 ```
 
-Scan the QR with your phone's camera, enter the PIN once, and you are paired.
+Scan the QR with your phone's camera and you are paired — the QR carries a
+single-use pairing code, so the PIN is only needed when typing the address by
+hand.
 
 If the URL does not load, see [Windows Firewall](#windows-firewall) below — that
 is the usual cause.
+
+---
+
+## Building the release
+
+```bash
+npm run dist
+```
+
+Produces two files in `release/`:
+
+| File | What it is |
+|------|-----------|
+| `PCRemote-Setup.exe` | The installer. ~24 MB. Adds the firewall rule, offers autostart, registers an uninstaller. |
+| `PCRemote.exe` | The same app as one portable file. ~93 MB. No install, no admin, but Windows will ask about the firewall on first run. |
+
+Needs [Inno Setup](https://jrsoftware.org/isinfo.php) for the installer step
+(`winget install JRSoftware.InnoSetup`); without it the portable exe is still
+built. `postject` comes from `npm install`.
+
+### What the build does, and why
+
+The executable is a Node [single executable application][sea]: a copy of
+`node.exe` with the bundled agent and the built web client injected into it.
+Four things happen to that copy afterwards, each for a specific reason:
+
+1. **The Authenticode signature is stripped.** It covers bytes the injection
+   changes, so leaving it makes Windows call the result *corrupt* — treated far
+   more harshly than merely unsigned. `signtool` does this, but it only ships in
+   the Windows SDK, so `scripts/dist.mjs` clears the certificate directory entry
+   and truncates instead.
+2. **Name, version and icon are written** via `BeginUpdateResource`. Skip this
+   and the Windows Firewall prompt asks the user to allow *"Node.js JavaScript
+   Runtime"* onto their network — a name they have never heard of, on a dialog
+   whose safe-looking button is Cancel.
+3. **The PE subsystem is flipped to GUI**, because a console-subsystem binary
+   opens a black window that lives as long as the app. There is no flag for it;
+   the subsystem is a field in the PE header.
+4. **The installer is compiled**, wrapping the exe with a firewall rule scoped to
+   private and domain profiles — never public.
+
+[sea]: https://nodejs.org/api/single-executable-applications.html
+
+The web client cannot be served from inside the binary, so it is embedded as SEA
+assets and unpacked once to `%LOCALAPPDATA%\PCRemote\client-<version>-<hash>`
+on first launch. The hash means a changed client always re-extracts, and a
+completion marker means a half-written extraction is never reused.
+
+### The download page
+
+`docs/index.html` is a single self-contained file, served by GitHub Pages from
+the `docs/` folder. Its download button points at
+`releases/latest/download/PCRemote-Setup.exe`, which is why the installer
+filename carries no version number — a versioned name would break the button on
+every release.
 
 ---
 
@@ -609,12 +671,32 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 This is a LAN-only tool and the security model is scoped to that. It is **not**
 built to survive exposure to the internet — do not port-forward it.
 
-**How pairing works.** On first run the agent generates a random 6-digit PIN and
-saves it to `config.json`. The phone POSTs the PIN to `/api/pair` and gets back a
-256-bit bearer token. Only the token's SHA-256 is written to disk; the raw value
-exists in the phone's `localStorage` and nowhere else. Every API call carries it
-as `Authorization: Bearer …`, and the WebSocket carries it as a query parameter,
-because the browser WebSocket API cannot set request headers.
+**How pairing works.** There are two ways in, and both end at the same bearer
+token.
+
+*Scanning the QR* is the normal path. The QR encodes `http://IP:8765/?p=<code>`,
+where the code is 256 bits of `randomBytes`, held in memory only and **rotated
+the moment it is spent**. The client reads it, strips it from the URL with
+`history.replaceState` before the first render, and POSTs it to `/api/pair`. No
+PIN, no typing.
+
+*Typing the PIN* is the fallback for when a camera will not cooperate. On first
+run the agent generates a random 6-digit PIN and saves it to `config.json`.
+
+Either way `/api/pair` returns a 256-bit bearer token. Only the token's SHA-256
+is written to disk; the raw value exists in the phone's `localStorage` and
+nowhere else. Every API call carries it as `Authorization: Bearer …`, and the
+WebSocket carries it as a query parameter, because the browser WebSocket API
+cannot set request headers.
+
+The pairing code deliberately **skips the failure throttle** that guards the PIN.
+Two reasons: 256 bits is not brute-forceable, so the throttle buys nothing; and
+sharing the counter would let anyone spraying bad codes at the agent lock the
+owner out of their own PIN.
+
+The code is never exposed over HTTP — there is no endpoint that hands it out.
+The first-run window receives it over the tray's local pipe, which is why the QR
+on screen works and a request from the network cannot ask for one.
 
 **Defences in place.**
 

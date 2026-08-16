@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PC Remote — control your PC from your phone</title>
+    <meta
+      name="description"
+      content="Turn your phone into a remote control for your Windows PC. Volume, media, monitors and power — over your own Wi-Fi, with nothing in the cloud. Free and open source."
+    />
+    <link rel="icon" href="pcremote.ico" />
+    <style>
+      /* One file, no build step, no external requests: the page has to keep
+         working years from now with nobody maintaining it. */
+      :root {
+        --bg: #0b0c0f;
+        --panel: #14161b;
+        --line: #23262e;
+        --text: #e8eaf0;
+        --dim: #9aa1ae;
+        --accent: #4ade80;
+        --accent-ink: #06240f;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f7f8fa;
+          --panel: #ffffff;
+          --line: #e3e6ec;
+          --text: #14161b;
+          --dim: #5c6472;
+          --accent: #16a34a;
+          --accent-ink: #ffffff;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+      header {
+        text-align: center;
+        padding: 72px 0 8px;
+      }
+      .mark {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 22px;
+        border-radius: 18px;
+        background: linear-gradient(140deg, #181a20, #2e323e);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .mark svg {
+        width: 40px;
+        height: 40px;
+      }
+      h1 {
+        font-size: clamp(30px, 6vw, 44px);
+        line-height: 1.15;
+        margin: 0 0 14px;
+        letter-spacing: -0.02em;
+      }
+      .sub {
+        color: var(--dim);
+        font-size: clamp(16px, 2.4vw, 19px);
+        margin: 0 auto 34px;
+        max-width: 30em;
+      }
+      .cta {
+        display: inline-block;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-size: 18px;
+        font-weight: 650;
+        text-decoration: none;
+        padding: 16px 34px;
+        border-radius: 11px;
+        border: 0;
+      }
+      .cta:hover {
+        filter: brightness(1.08);
+      }
+      .meta {
+        color: var(--dim);
+        font-size: 13.5px;
+        margin: 14px 0 0;
+      }
+      .meta a {
+        color: var(--dim);
+      }
+      .shot {
+        margin: 56px 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        padding: 26px;
+      }
+      .steps {
+        list-style: none;
+        counter-reset: s;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 18px;
+      }
+      .steps li {
+        counter-increment: s;
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .steps li::before {
+        content: counter(s);
+        flex: 0 0 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-size: 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      h2 {
+        font-size: 22px;
+        margin: 56px 0 18px;
+        letter-spacing: -0.01em;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 18px;
+        background: var(--panel);
+      }
+      .card h3 {
+        margin: 0 0 4px;
+        font-size: 15.5px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--dim);
+        font-size: 14px;
+      }
+      .note {
+        border-left: 3px solid var(--accent);
+        padding: 2px 0 2px 16px;
+        color: var(--dim);
+        font-size: 15px;
+      }
+      footer {
+        margin: 72px 0 48px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+        color: var(--dim);
+        font-size: 14px;
+        text-align: center;
+      }
+      footer a {
+        color: var(--dim);
+      }
+      code {
+        font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+        font-size: 0.92em;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        padding: 1px 6px;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.4"
+               stroke-linecap="round">
+            <path d="M8.2 5.6a7.5 7.5 0 1 0 7.6 0" />
+            <path d="M12 2.5v6" />
+          </svg>
+        </div>
+        <h1>Control your PC from your phone</h1>
+        <p class="sub">
+          Volume, music, monitor inputs, brightness and power — from anywhere in the house.
+          No account, no cloud, nothing leaves your Wi-Fi.
+        </p>
+
+        <a class="cta" href="https://github.com/tarangdwivedy123/PC-Remote/releases/latest/download/PCRemote-Setup.exe">
+          Download for Windows
+        </a>
+        <p class="meta">
+          Free and open source · Windows 10 &amp; 11 ·
+          <a href="https://github.com/tarangdwivedy123/PC-Remote/releases/latest/download/PCRemote.exe">
+            portable version
+          </a>
+        </p>
+      </header>
+
+      <div class="shot">
+        <ol class="steps">
+          <li><div><strong>Install it and it opens a QR code.</strong></div></li>
+          <li>
+            <div>
+              <strong>Point your phone's camera at it</strong> and tap the link that appears.
+              Your phone needs to be on the same Wi-Fi as the PC.
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>That's it.</strong> The controls are already on screen. Add it to your
+              home screen and it behaves like an app.
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <h2>What you can do</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Volume</h3>
+          <p>Whole system, or one app at a time. Mute the mic. Switch speakers or headphones.</p>
+        </div>
+        <div class="card">
+          <h3>Whatever's playing</h3>
+          <p>Play, pause and skip, with the track and cover art, from Spotify, YouTube or anything else.</p>
+        </div>
+        <div class="card">
+          <h3>Monitors</h3>
+          <p>Change input — HDMI to DisplayPort and back — and set brightness, without reaching for the buttons under the bezel.</p>
+        </div>
+        <div class="card">
+          <h3>Power</h3>
+          <p>Lock, sleep, or turn the displays off. Shut down and restart need two taps, deliberately.</p>
+        </div>
+        <div class="card">
+          <h3>Send to PC</h3>
+          <p>Push text to the PC clipboard, or open a link on the big screen. Works the other way too.</p>
+        </div>
+        <div class="card">
+          <h3>Sleep timer</h3>
+          <p>Send the PC to sleep in twenty minutes, or any length you pick.</p>
+        </div>
+      </div>
+
+      <h2>It stays on your network</h2>
+      <p class="note">
+        There is no server in the middle and no account to make. The PC talks to your phone
+        directly over your own Wi-Fi, and the installer only opens the firewall for
+        <strong>private</strong> networks — so it does nothing on café or airport Wi-Fi.
+        Your phone pairs once by scanning the code; nothing else can connect without it.
+      </p>
+
+      <h2>Good to know</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Windows may warn you</h3>
+          <p>
+            The download isn't signed yet, so Windows shows a blue "protected your PC" box.
+            Click <strong>More info</strong>, then <strong>Run anyway</strong>.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Monitor controls need DDC/CI</h3>
+          <p>
+            Most desktop monitors support it, though some ship with it switched off — look for
+            DDC/CI in the monitor's own menu. Laptop screens don't support it.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Old phones are fine</h3>
+          <p>The dashboard is built to run on Chrome going back to around version 70.</p>
+        </div>
+        <div class="card">
+          <h3>Removing it</h3>
+          <p>
+            Add or remove programs → PC Remote. It takes the firewall rule with it and asks
+            before deleting your settings.
+          </p>
+        </div>
+      </div>
+
+      <footer>
+        <a href="https://github.com/tarangdwivedy123/PC-Remote">Source on GitHub</a>
+        ·
+        <a href="https://github.com/tarangdwivedy123/PC-Remote/issues">Report a problem</a>
+      </footer>
+    </div>
+  </body>
+</html>

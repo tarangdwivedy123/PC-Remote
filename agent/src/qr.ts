@@ -101,6 +101,24 @@ function renderHalfBlocks(m: Matrix): string {
 }
 
 /** Renders `text` as a scannable QR code made of terminal escape sequences. */
+/**
+ * The raw module grid, for renderers that are not a terminal.
+ *
+ * The first-run window draws its QR from this rather than re-encoding: there is
+ * no reason to carry a second QR implementation in the tray process when the
+ * agent already has one, and two encoders could disagree.
+ */
+export function qrMatrix(text: string): boolean[][] {
+  const matrix = createMatrix(text);
+  const rows: boolean[][] = [];
+  for (let y = 0; y < matrix.size; y++) {
+    const row: boolean[] = [];
+    for (let x = 0; x < matrix.size; x++) row.push(matrix.dark(x, y));
+    rows.push(row);
+  }
+  return rows;
+}
+
 export function renderQr(text: string, options: QrOptions = {}): string {
   const matrix = createMatrix(text);
   const useBlocks = options.blocks ?? process.env['PCR_QR_BLOCKS'] === '1';

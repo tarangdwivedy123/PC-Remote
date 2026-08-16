@@ -8,7 +8,8 @@ import { parseArgs, printHelp } from './cli.js';
 import { CommandRouter } from './commands.js';
 import { ConfigStore, generatePin } from './config.js';
 import { color, createLogger, raw, setLogLevel } from './log.js';
-import { pickLanAddress } from './net.js';
+import { getNetworkName, pickLanAddress } from './net.js';
+import { extractClient, isPackaged } from './packaged.js';
 import { startServer, type StartedServer } from './server.js';
 import { StateHub } from './state.js';
 import { StatsSampler } from './stats/index.js';
@@ -21,6 +22,7 @@ import { MonitorService } from './monitors/index.js';
 import { registerMonitorCommands } from './monitors/commands.js';
 import { SystemService } from './system/index.js';
 import { registerSystemCommands } from './system/commands.js';
+import { Tray } from './tray/index.js';
 import { AGENT_VERSION } from './version.js';
 
 const log = createLogger('agent');
@@ -106,6 +108,17 @@ async function main(): Promise<void> {
     agentVersion: AGENT_VERSION,
   };
 
+  /**
+   * When running as the packaged .exe the client lives inside the binary, so it
+   * has to be unpacked before anything tries to serve it. Setting the env var
+   * rather than passing a path keeps `findClientDir` as the single place that
+   * decides where the client comes from — it already checks this first.
+   */
+  if (isPackaged()) {
+    const unpacked = extractClient();
+    if (unpacked) process.env['PCR_CLIENT_DIR'] = unpacked;
+  }
+
   const auth = new AuthService(config);
   const hub = new StateHub();
   const router = new CommandRouter();
@@ -136,10 +149,47 @@ async function main(): Promise<void> {
     configFile: config.file,
     version: AGENT_VERSION,
     clientBuilt: server.clientDir !== undefined,
+    pairingCode: auth.pairingCode,
     devClientUrl: devPort ? `http://${pickLanAddress() ?? 'localhost'}:${devPort}` : undefined,
   });
 
   log.info(`listening on ${server.address}`);
+
+  /**
+   * Tray icon and first-run window.
+   *
+   * This is what makes the app usable by someone who will never look at a
+   * console: the QR is on screen rather than in scrollback, the network they
+   * need to join is named, and there is somewhere to click to get it all back.
+   *
+   * Everything below is best-effort. A tray that fails to start leaves the agent
+   * running exactly as before, with its banner — a worse experience, not a
+   * broken one.
+   */
+  const lanIp = process.env['PCR_LAN_IP'] ?? pickLanAddress();
+  const plainUrl = `http://${lanIp ?? 'localhost'}:${config.current.port}`;
+  const tray = new Tray();
+  const trayInfo = async () => ({
+    pairUrl: `${plainUrl}/?p=${encodeURIComponent(auth.pairingCode)}`,
+    plainUrl,
+    network: await getNetworkName(),
+    pin: config.current.pin,
+  });
+
+  void trayInfo()
+    .then(async (info) => {
+      await tray.start(info, () => {
+        log.info('quit requested from the tray');
+        process.kill(process.pid, 'SIGINT');
+      });
+      /**
+       * Only on a genuinely fresh install. Someone who has already paired does
+       * not want a window in their face every time the PC starts — they want the
+       * thing to be invisible until they need it.
+       */
+      if (tray.available && config.current.tokens.length === 0) tray.show();
+    })
+    .catch((err) => log.debug('tray unavailable:', err));
 
   /**
    * Stats start last, after the banner is on screen. The URL, QR and PIN are what
@@ -165,7 +215,7 @@ async function main(): Promise<void> {
   registerSystemCommands(router, system, auth);
   registerMonitorCommands(router, monitors);
 
-  installShutdownHandlers(server, config, stats, volume, media, monitors, system, winHost);
+  installShutdownHandlers(server, config, stats, volume, media, monitors, system, winHost, tray);
   await stats.start();
   // Started after stats so the compile does not delay the charts.
   await winHost.start();
@@ -184,6 +234,7 @@ function installShutdownHandlers(
   monitors: MonitorService,
   system: SystemService,
   winHost: WinHost,
+  tray: Tray,
 ): void {
   let shuttingDown = false;
 
@@ -214,6 +265,7 @@ function installShutdownHandlers(
       monitors.stop();
       system.stop();
       winHost.stop();
+      tray.stop();
       await server.close();
       await config.flush();
     } catch (err) {

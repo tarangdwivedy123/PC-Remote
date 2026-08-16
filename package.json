@@ -21,11 +21,13 @@
     "start": "npm --workspace @pcr/agent run start",
     "typecheck": "npm --workspace @pcr/shared run typecheck && npm --workspace @pcr/agent run typecheck && npm --workspace @pcr/client run typecheck",
     "verify": "tsx scripts/verify/index.mts",
-    "clean": "node -e \"const{rmSync}=require('fs');for(const p of ['agent/dist','client/dist','helper/bin','helper/obj'])rmSync(p,{recursive:true,force:true})\""
+    "clean": "node -e \"const{rmSync}=require('fs');for(const p of ['agent/dist','client/dist','helper/bin','helper/obj'])rmSync(p,{recursive:true,force:true})\"",
+    "dist": "npm run build && node scripts/dist.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
     "concurrently": "^9.1.2",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^5.7.3"
   }
 }

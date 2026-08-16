@@ -157,3 +157,39 @@ export function hasAmbiguousLan(candidates: LanCandidate[]): boolean {
   if (!top || !second) return false;
   return top.score - second.score < 15;
 }
+
+/**
+ * The name of the network this PC is on, for telling the user what their phone
+ * has to join.
+ *
+ * "Make sure your phone is on the same Wi-Fi" is the instruction everyone gets
+ * wrong — people are on mobile data, or the guest SSID, or the 5GHz twin of the
+ * network the PC uses. Naming it removes the guesswork.
+ *
+ * Best-effort: an unknown network is not worth blocking startup over, so a
+ * failure here just means the window omits that line.
+ */
+export async function getNetworkName(): Promise<string> {
+  if (process.platform !== 'win32') return '';
+  const { execFile } = await import('node:child_process');
+  return new Promise((resolve) => {
+    execFile(
+      'netsh',
+      ['wlan', 'show', 'interfaces'],
+      { timeout: 4000, windowsHide: true },
+      (err, stdout) => {
+        if (err) return resolve('');
+        /**
+         * Matched on the line rather than a fixed offset: netsh output is
+         * localised, but the SSID value itself is not, and "BSSID" would match a
+         * looser pattern first — hence the word boundary.
+         */
+        for (const line of String(stdout).split(/\r?\n/)) {
+          const match = /^\s*SSID\s*:\s*(.+?)\s*$/.exec(line);
+          if (match?.[1]) return resolve(match[1]);
+        }
+        resolve('');
+      },
+    );
+  });
+}

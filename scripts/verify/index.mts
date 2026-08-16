@@ -19,6 +19,7 @@ import { run as runMedia } from './m4-media.mts';
 import { run as runSystem } from './m6-system.mts';
 import { run as runMonitors } from './m7-monitors.mts';
 import { run as runExtras } from './m8-extras.mts';
+import { run as runPackaging } from './m9-packaging.mts';
 import { run as runOldChrome } from './old-chrome.mts';
 
 const suites = [
@@ -32,6 +33,7 @@ const suites = [
   { name: 'm6-system', run: runSystem },
   { name: 'm7-monitors', run: runMonitors },
   { name: 'm8-extras', run: runExtras },
+  { name: 'm9-packaging', run: runPackaging },
   { name: 'old-chrome', run: runOldChrome },
   // The render suites go last: they install DOM globals process-wide, which the
   // agent suites would then pick up.

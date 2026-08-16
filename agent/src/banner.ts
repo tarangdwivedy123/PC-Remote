@@ -12,6 +12,8 @@ export interface BannerInfo {
   /** Set in dev, where the phone should hit the Vite server instead. */
   devClientUrl?: string;
   clientBuilt: boolean;
+  /** Single-use code embedded in the QR, so scanning pairs without typing. */
+  pairingCode?: string;
 }
 
 function heading(text: string): string {
@@ -42,12 +44,25 @@ export function printBanner(info: BannerInfo): void {
 
   const url = info.devClientUrl ?? buildUrl(primary, info.port);
 
+  /**
+   * The QR carries a single-use pairing code, so scanning it pairs the phone
+   * outright — nobody has to read six digits off a screen and type them.
+   *
+   * The plain URL is printed without it: that one is for typing by hand, and it
+   * would be unusable with 43 characters of code appended. Typing the address
+   * leads to the PIN screen, which is why the PIN still exists.
+   */
+  const pairUrl = info.pairingCode ? `${url}/?p=${encodeURIComponent(info.pairingCode)}` : url;
+
   raw(`  ${heading('Open on your phone:')}`);
   raw(`    ${color('cyan', url)}`);
   raw('');
 
   try {
-    raw(indentQr(renderQr(url), 4));
+    raw(indentQr(renderQr(pairUrl), 4));
+    if (info.pairingCode) {
+      raw(color('dim', '    Scan this and you are paired — no PIN needed.'));
+    }
   } catch (err) {
     raw(color('yellow', `    (could not render QR: ${(err as Error).message})`));
   }
