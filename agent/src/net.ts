@@ -193,3 +193,73 @@ export async function getNetworkName(): Promise<string> {
     );
   });
 }
+
+/**
+ * Windows' firewall category for the network carrying the given address, plus
+ * its name.
+ *
+ * This matters more than it looks. The installer opens the firewall for Private
+ * and Domain networks only -- deliberately, because this app must never be
+ * reachable from a café or airport network. But Windows marks a network Public
+ * by default, and marks it Public again whenever it decides a familiar SSID is a
+ * new network. When that happens the rule stops applying, the phone's packets
+ * are dropped before they reach the agent, and the app looks broken while being
+ * perfectly healthy.
+ *
+ * Knowing the category is what lets the app say so instead of hanging.
+ */
+export interface NetworkInfo {
+  /** SSID or network name, empty when it cannot be determined. */
+  name: string;
+  /** '' when unknown -- treated as "probably fine", never as a blocker. */
+  category: 'Public' | 'Private' | 'DomainAuthenticated' | '';
+}
+
+export async function getNetworkInfo(lanIp?: string): Promise<NetworkInfo> {
+  if (process.platform !== 'win32') return { name: '', category: '' };
+  const { execFile } = await import('node:child_process');
+
+  /**
+   * The address is substituted into the script rather than passed as an
+   * argument: `powershell -Command` does not populate $args from trailing
+   * arguments, which silently produced an empty result. It is checked against a
+   * strict IPv4 pattern first, so nothing that is not four numbers can reach the
+   * command line.
+   */
+  const safeIp = lanIp && /^\d{1,3}(\.\d{1,3}){3}$/.test(lanIp) ? lanIp : '';
+
+  /**
+   * Matched by address rather than by taking the first profile: this machine has
+   * Wi-Fi, Ethernet, Bluetooth and a VPN adapter all carrying addresses, and only
+   * the one actually serving the phone has a category worth reporting.
+   */
+  const lookup = safeIp
+    ? `$alias = (Get-NetIPAddress -IPAddress '${safeIp}' -AddressFamily IPv4 | Select-Object -First 1).InterfaceAlias; ` +
+      `$p = if ($alias) { Get-NetConnectionProfile -InterfaceAlias $alias | Select-Object -First 1 } else { Get-NetConnectionProfile | Select-Object -First 1 };`
+    : '$p = Get-NetConnectionProfile | Select-Object -First 1;';
+
+  const script =
+    '$ErrorActionPreference = "SilentlyContinue"; ' +
+    lookup +
+    ' if ($p) { [Console]::Out.Write($p.Name + "|" + $p.NetworkCategory) }';
+
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { timeout: 6000, windowsHide: true },
+      (err, stdout) => {
+        if (err) return resolve({ name: '', category: '' });
+        const [name = '', category = ''] = String(stdout).trim().split('|');
+        const known = ['Public', 'Private', 'DomainAuthenticated'];
+        resolve({
+          name,
+          // An unrecognised value is reported as unknown, never as Public: a
+          // false alarm telling the user their network is blocked would be worse
+          // than staying quiet.
+          category: (known.includes(category) ? category : '') as NetworkInfo['category'],
+        });
+      },
+    );
+  });
+}

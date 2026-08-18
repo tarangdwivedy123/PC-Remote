@@ -19,6 +19,12 @@ export interface PairInfo {
   plainUrl: string;
   network: string;
   pin: string;
+  /**
+   * Windows' firewall category for this network. 'Public' means the phone is
+   * being blocked before it ever reaches the agent, and the page has to say so
+   * rather than show a QR code that cannot work.
+   */
+  networkCategory?: 'Public' | 'Private' | 'DomainAuthenticated' | '';
 }
 
 function escapeHtml(text: string): string {
@@ -66,6 +72,31 @@ export function renderPairPage(info: PairInfo): string {
       )}</strong></div>`
     : '';
 
+  /**
+   * Shown instead of the reassuring Wi-Fi note, because when this is the case
+   * nothing else on the page will work. Windows blocks incoming connections on
+   * networks it considers public, and the app's firewall rule deliberately does
+   * not cover them -- being unreachable on a café network is the point.
+   *
+   * The remedy offered is to reclassify the network, not to widen the firewall.
+   * Telling Windows "this is my home network" is both true and the thing that
+   * makes every other kind of local sharing work; punching a hole for public
+   * networks would undo the guarantee the whole app rests on.
+   */
+  const blocked =
+    info.networkCategory === 'Public'
+      ? `<div class="blocked">
+           <strong>Windows is blocking your phone</strong>
+           <p>Your network${info.network ? ` <b>${escapeHtml(info.network)}</b>` : ''} is set to
+           <b>Public</b>, so Windows refuses connections from other devices — including your phone.
+           The QR code below cannot work until this is changed.</p>
+           <p class="fix"><b>To fix it:</b> open <b>Settings &rsaquo; Network &amp; internet &rsaquo;
+           Wi-Fi</b>, click the network you are connected to, and choose
+           <b>Private network</b>. Then reload this page.</p>
+           <p class="small">Only do this on a network you trust, such as your home Wi-Fi.</p>
+         </div>`
+      : '';
+
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -93,12 +124,20 @@ code{display:block;margin:5px 0 12px;padding:9px 11px;border-radius:7px;
   background:rgba(127,127,127,.14);font:600 14px/1.4 ui-monospace,Consolas,monospace;
   color:inherit;word-break:break-all}
 .pin{letter-spacing:.16em}
+.blocked{margin:0 0 22px;padding:14px 16px;border-radius:10px;text-align:left;
+  background:rgba(248,113,113,.13);border:1px solid rgba(248,113,113,.42)}
+.blocked strong{display:block;margin-bottom:6px;color:#f87171;font-size:15px}
+.blocked p{margin:0 0 8px;font-size:13.5px;line-height:1.5}
+.blocked p:last-child{margin-bottom:0}
+.blocked .fix{padding-top:8px;border-top:1px solid rgba(248,113,113,.25)}
+.blocked .small{color:#9aa1ae;font-size:12.5px}
 </style></head><body>
 <div class="card">
   <h1>Connect your phone</h1>
   <p class="lead">Point your phone's camera at this code and tap the link.</p>
+  ${blocked}
   <div class="qr">${qrSvg(info.pairUrl)}</div>
-  ${network}
+  ${blocked ? '' : network}
   <div class="alt">
     Camera not working? Type this into your phone's browser:
     <code>${escapeHtml(info.plainUrl)}</code>

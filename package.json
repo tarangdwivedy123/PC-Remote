@@ -1,7 +1,7 @@
 {
   "name": "pc-remote",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "LAN-only PC remote control: Node agent on Windows + mobile PWA dashboard",
   "workspaces": [
     "shared",

@@ -8,10 +8,11 @@ import { parseArgs, printHelp } from './cli.js';
 import { CommandRouter } from './commands.js';
 import { ConfigStore, generatePin } from './config.js';
 import { color, createLogger, raw, setLogLevel } from './log.js';
-import { getNetworkName, pickLanAddress } from './net.js';
+import { getNetworkInfo, pickLanAddress } from './net.js';
 import { extractClient, isPackaged } from './packaged.js';
 import { reportFatal } from './fatal.js';
 import { openPairPage } from './openbrowser.js';
+import type { PairInfo } from './pairpage.js';
 import { surfaceExistingInstance } from './singleton.js';
 import { startServer, type StartedServer } from './server.js';
 import { StateHub } from './state.js';
@@ -147,11 +148,12 @@ async function main(): Promise<void> {
    * Served by /pair. Starts without the network name because netsh takes a
    * moment, and the page is only reachable once the tray info has been built.
    */
-  let pairingInfo = {
+  let pairingInfo: PairInfo = {
     pairUrl: `${plainUrl}/?p=${encodeURIComponent(auth.pairingCode)}`,
     plainUrl,
     network: '',
     pin: config.current.pin,
+    networkCategory: '',
   };
 
   const server = await startServer({
@@ -201,11 +203,13 @@ async function main(): Promise<void> {
    */
   const tray = new Tray();
   const trayInfo = async () => {
+    const net = await getNetworkInfo(lanIp);
     pairingInfo = {
       pairUrl: `${plainUrl}/?p=${encodeURIComponent(auth.pairingCode)}`,
       plainUrl,
-      network: await getNetworkName(),
+      network: net.name,
       pin: config.current.pin,
+      networkCategory: net.category,
     };
     return pairingInfo;
   };
@@ -229,6 +233,21 @@ async function main(): Promise<void> {
        */
       const quiet = args.startup && config.current.tokens.length > 0;
       if (quiet) return;
+
+      /**
+       * A public network means Windows is dropping the phone's packets before
+       * they reach the agent, so the QR window would show a code that cannot
+       * work. The browser page explains the problem and how to fix it; showing
+       * that instead is the difference between "broken" and "here is why".
+       */
+      if (pairingInfo.networkCategory === 'Public') {
+        log.warn(
+          `this network is classified Public, so Windows is blocking incoming ` +
+            `connections; opening the pairing page to explain`,
+        );
+        openPairPage(config.current.port);
+        return;
+      }
       /**
        * The browser is the fallback that cannot fail. If the tray did not come
        * up, the agent is still an HTTP server, and a page it serves is a

@@ -189,6 +189,47 @@ export async function run() {
     check('the pairing page escapes the values it interpolates', pairpage.includes('escapeHtml'));
     check('the QR is drawn as scalable SVG, not a bitmap', pairpage.includes('shape-rendering="crispEdges"'));
 
+    // -- the public-network trap ---------------------------------------------
+
+    /**
+     * The failure that looked like a hang: Windows classifies most networks
+     * Public by default, the installer's firewall rule covers Private and Domain
+     * only, so the phone's packets were dropped before reaching the agent. The
+     * app was healthy and completely unreachable.
+     *
+     * The remedy must never be to widen the firewall to Public -- being
+     * unreachable on an untrusted network is the guarantee this project rests
+     * on -- so these checks pin both the detection and the advice.
+     */
+    const net = read('agent/src/net.ts');
+    check('the network category is detected', net.includes('NetworkCategory'));
+    check(
+      'the category is matched to the interface serving the phone',
+      net.includes('Get-NetIPAddress') && net.includes('InterfaceAlias'),
+    );
+    check(
+      'the address is validated before reaching a command line',
+      net.includes('.test(lanIp) ? lanIp') && net.includes('safeIp'),
+    );
+    check(
+      'an unknown category is not reported as blocked',
+      net.includes("known.includes(category) ? category : ''"),
+    );
+
+    const pp = read('agent/src/pairpage.ts');
+    check('a public network is explained rather than left as a hang', pp.includes('Windows is blocking your phone'));
+    check(
+      'the advice is to reclassify the network, not to open the firewall',
+      pp.includes('Private network') && !/profile=.*public/i.test(pp),
+    );
+    check('the advice warns against doing it on an untrusted network', pp.includes('network you trust'));
+
+    const idx3 = read('agent/src/index.ts');
+    check(
+      'a blocked network opens the explanation instead of an unusable QR window',
+      /networkCategory === 'Public'/.test(idx3),
+    );
+
     // -- the download page ---------------------------------------------------
 
     const page = read('docs/index.html');

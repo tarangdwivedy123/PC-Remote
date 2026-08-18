@@ -163,7 +163,7 @@ own throwaway config, so it never touches your real setup:
 npm run verify
 ```
 
-Expect `509/509 checks passed` across fourteen suites: the WebSocket protocol and
+Expect `517/517 checks passed` across fourteen suites: the WebSocket protocol and
 auth, the bundled agent serving the built client, dev-mode proxying, stats
 end-to-end, the nvidia-smi and typeperf output parsers, volume (session grouping
 plus a live device round-trip), media keys and sessions, system actions and the
