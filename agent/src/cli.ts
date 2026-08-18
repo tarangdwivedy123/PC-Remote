@@ -4,6 +4,12 @@ export interface ParsedArgs {
   help: boolean;
   version: boolean;
   showPin: boolean;
+  /**
+   * Set by the autostart entry. A launch at login should be silent; a launch the
+   * user performed themselves should always show the QR window, because clicking
+   * an app and getting no response is indistinguishable from it being broken.
+   */
+  startup: boolean;
   resetPin: boolean;
   revokeAll: boolean;
   port: number | undefined;
@@ -23,6 +29,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     help: false,
     version: false,
     showPin: false,
+    startup: false,
     resetPin: false,
     revokeAll: false,
     port: undefined,
@@ -46,6 +53,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case '-v':
       case '--version':
         out.version = true;
+        break;
+      case '--startup':
+        out.startup = true;
         break;
       case '--show-pin':
         out.showPin = true;

@@ -47,6 +47,11 @@ export interface ServerOptions {
    * after the server is already listening.
    */
   getThumbnail?: () => { id: string; bytes: Buffer; contentType: string } | undefined;
+  /**
+   * Puts the tray's QR window on screen. Late-bound because the tray is started
+   * after the server is listening.
+   */
+  onShowWindow?: () => void;
 }
 
 export interface StartedServer {
@@ -175,6 +180,25 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     protocol: PROTOCOL_VERSION,
     version: host.agentVersion,
   }));
+
+  /**
+   * Asks the tray to put its window on screen. Used when the app is launched a
+   * second time: rather than a doomed attempt to bind the port, the new process
+   * calls this and exits.
+   *
+   * Loopback only, and deliberately unauthenticated. Anything that can reach
+   * 127.0.0.1 is already running as a user on this machine, so a token would add
+   * nothing; restricting it to loopback is what matters, because a LAN client
+   * being able to throw windows onto someone's screen is a nuisance at best.
+   */
+  app.post('/api/show', async (request, reply) => {
+    const ip = request.ip.startsWith('::ffff:') ? request.ip.slice(7) : request.ip;
+    if (ip !== '127.0.0.1' && ip !== '::1' && !ip.startsWith('127.')) {
+      return reply.code(403).send({ error: 'This can only be requested from the PC itself.' });
+    }
+    options.onShowWindow?.();
+    return { ok: true };
+  });
 
   app.post('/api/pair', async (request, reply) => {
     const ip = request.ip;

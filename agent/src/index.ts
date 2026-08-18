@@ -10,6 +10,8 @@ import { ConfigStore, generatePin } from './config.js';
 import { color, createLogger, raw, setLogLevel } from './log.js';
 import { getNetworkName, pickLanAddress } from './net.js';
 import { extractClient, isPackaged } from './packaged.js';
+import { reportFatal } from './fatal.js';
+import { surfaceExistingInstance } from './singleton.js';
 import { startServer, type StartedServer } from './server.js';
 import { StateHub } from './state.js';
 import { StatsSampler } from './stats/index.js';
@@ -94,6 +96,13 @@ async function main(): Promise<void> {
 
   // -- normal startup ------------------------------------------------------
 
+  /**
+   * A second launch means the user clicked the app while it was already running.
+   * Hand the request to the copy that owns the port and stand down, rather than
+   * failing to bind and dying where nobody can see it.
+   */
+  if (await surfaceExistingInstance(config.current.port)) return;
+
   if (process.platform !== 'win32') {
     log.warn(
       `running on ${process.platform}; volume, media and system actions are Windows-only ` +
@@ -128,6 +137,8 @@ async function main(): Promise<void> {
    * listening, but the artwork route needs to reach it.
    */
   let mediaRef: MediaService | undefined;
+  /** Late-bound for the same reason: /api/show needs to reach the tray. */
+  let trayRef: Tray | undefined;
 
   const server = await startServer({
     config,
@@ -136,6 +147,7 @@ async function main(): Promise<void> {
     router,
     host: hostInfo,
     getThumbnail: () => mediaRef?.thumbnail,
+    onShowWindow: () => trayRef?.show(),
   });
 
   const devPort =
@@ -176,6 +188,7 @@ async function main(): Promise<void> {
     pin: config.current.pin,
   });
 
+  trayRef = tray;
   void trayInfo()
     .then(async (info) => {
       await tray.start(info, () => {
@@ -183,11 +196,17 @@ async function main(): Promise<void> {
         process.kill(process.pid, 'SIGINT');
       });
       /**
-       * Only on a genuinely fresh install. Someone who has already paired does
-       * not want a window in their face every time the PC starts — they want the
-       * thing to be invisible until they need it.
+       * Autostart at login stays silent unless nothing has ever paired — nobody
+       * wants a window in their face every time the PC boots.
+       *
+       * Any other launch shows the window, because the user just clicked
+       * something and an app that responds to a click with nothing at all is
+       * indistinguishable from one that is broken. This was the actual bug: with
+       * a device already paired, installing and running produced no visible sign
+       * the app existed.
        */
-      if (tray.available && config.current.tokens.length === 0) tray.show();
+      const quiet = args.startup && config.current.tokens.length > 0;
+      if (tray.available && !quiet) tray.show();
     })
     .catch((err) => log.debug('tray unavailable:', err));
 
@@ -290,9 +309,15 @@ function installShutdownHandlers(
 }
 
 main().catch((err: unknown) => {
-  log.error(err instanceof Error ? err.message : err);
+  const message = err instanceof Error ? err.message : String(err);
+  log.error(message);
   if (process.env['PCR_LOG_LEVEL'] === 'debug' && err instanceof Error) {
     log.error(err.stack);
   }
+  /**
+   * Packaged, there is no console for the line above to land in, so this is the
+   * only thing between a real problem and the app appearing to do nothing.
+   */
+  reportFatal(message, 'PC Remote could not start.');
   process.exit(1);
 });

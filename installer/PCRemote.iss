@@ -70,12 +70,17 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{a
 ; and keeps its config under their profile, and two accounts starting it at once
 ; would fight over the same port.
 ;
+; The --startup flag marks this as a launch at login, which starts quietly. A
+; launch the user performed themselves always shows the QR window instead: an
+; app that answers a double-click with nothing on screen looks broken, whatever
+; it is busy doing in the background.
+;
 ; Written through reg.exe with runasoriginaluser rather than an [Registry] entry
 ; because this installer runs elevated for the firewall rule. In that state HKCU
 ; is the *elevating* account, so an admin installing for somebody else would
 ; silently set up autostart on the wrong profile.
 Filename: "{sys}\reg.exe"; \
-  Parameters: "add ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v PCRemote /t REG_SZ /d ""\""{app}\{#AppExe}\"""" /f"; \
+  Parameters: "add ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v PCRemote /t REG_SZ /d ""\""{app}\{#AppExe}\"" --startup"" /f"; \
   Flags: runhidden runasoriginaluser waituntilterminated; Tasks: startup
 
 ; Private and domain profiles only. This app is LAN-only by design and must

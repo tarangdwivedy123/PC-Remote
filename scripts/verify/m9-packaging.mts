@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-import { REPO_ROOT, createChecker } from './lib.mjs';
+import { REPO_ROOT, createChecker, startAgent, tempDataDir } from './lib.mjs';
 
 /**
  * Checks on the shippable artifacts and the things that make them a product
@@ -101,6 +102,45 @@ export async function run() {
       /return undefined;/.test(packaged) && packaged.includes('catch'),
     );
 
+    // -- launching it twice, and launching it at all -------------------------
+
+    /**
+     * The bug this covers: with a device already paired, installing and running
+     * the app produced nothing on screen at all. The window only appeared when
+     * no device had ever paired, and a second launch died on the port bind with
+     * no console to report it. Clicking the app did nothing, for good.
+     */
+    const index = read('agent/src/index.ts');
+    check(
+      'only an autostart launch is allowed to be silent',
+      /args\.startup && config\.current\.tokens\.length > 0/.test(index),
+    );
+    check(
+      'a second launch surfaces the running copy before anything binds',
+      index.indexOf('surfaceExistingInstance') < index.indexOf('startServer({'),
+    );
+
+    const single = read('agent/src/singleton.ts');
+    check(
+      'a stranger on the port is not mistaken for our own instance',
+      single.includes("body.name === 'pc-remote'"),
+    );
+    check('the probe cannot hang startup', single.includes('AbortSignal.timeout'));
+
+    const cli = read('agent/src/cli.ts');
+    check('the --startup flag is parsed', cli.includes("case '--startup':"));
+    check(
+      'the installer passes --startup on the autostart entry',
+      iss.includes('--startup'),
+    );
+
+    const fatal = read('agent/src/fatal.ts');
+    check(
+      'a fatal error is only shown as a dialog once packaged',
+      /if \(!isPackaged\(\)[\s\S]{0,80}return;/.test(fatal),
+    );
+    check('the error log is capped so it cannot grow without bound', fatal.includes('256 * 1024'));
+
     // -- the download page ---------------------------------------------------
 
     const page = read('docs/index.html');
@@ -161,6 +201,35 @@ export async function run() {
        */
       check('the executable identifies itself as PC Remote', info.startsWith('PC Remote|'), info);
       check('no trace of the Node runtime in its identity', !/node/i.test(info), info);
+    }
+
+    /**
+     * /api/show puts a window on the user's screen and takes no token, so
+     * loopback-only is the entire protection. Verified against a running agent
+     * rather than by reading the source: this is the kind of boundary that a
+     * refactor breaks quietly.
+     */
+    const dataDir = tempDataDir('m9-show');
+    const agent = await startAgent({ port: 8829, dataDir });
+    try {
+      const local = await fetch('http://127.0.0.1:8829/api/show', { method: 'POST' });
+      check('the show endpoint answers on loopback', local.status === 200, `HTTP ${local.status}`);
+
+      const lan = Object.values(os.networkInterfaces())
+        .flat()
+        .find((a) => a && !a.internal && (a.family === 'IPv4' || (a.family as unknown as number) === 4))
+        ?.address;
+
+      if (lan) {
+        const remote = await fetch(`http://${lan}:8829/api/show`, { method: 'POST' });
+        check(
+          'the show endpoint refuses a request from the network',
+          remote.status === 403,
+          `${lan} -> HTTP ${remote.status}`,
+        );
+      }
+    } finally {
+      await agent.stop();
     }
 
     const setup = path.join(root, 'release', 'PCRemote-Setup.exe');
