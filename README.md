@@ -163,12 +163,13 @@ own throwaway config, so it never touches your real setup:
 npm run verify
 ```
 
-Expect `455/455 checks passed` across thirteen suites: the WebSocket protocol and
+Expect `487/487 checks passed` across fourteen suites: the WebSocket protocol and
 auth, the bundled agent serving the built client, dev-mode proxying, stats
 end-to-end, the nvidia-smi and typeperf output parsers, volume (session grouping
 plus a live device round-trip), media keys and sessions, system actions and the
 PWA assets, monitor input switching, the old-Chrome feature floor, the React tree
-rendering, and the client's reassembly of delta patches.
+rendering, the client's reassembly of delta patches, and the packaging surface —
+the installer's firewall scope, the executable's identity, and the download links.
 
 The monitor suite never switches an input. Doing so would move a real display to
 another device — possibly one that is not plugged in, leaving a black screen to
@@ -1137,3 +1138,9 @@ OneDrive. This repo lives under OneDrive, so it comes up.
 `no-cache` and hashed assets `immutable`, so this should not happen — but if you
 added it to the home screen before a protocol change, the header shows a "reload
 me" banner. Pull down to refresh, or clear the site data in Chrome.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
