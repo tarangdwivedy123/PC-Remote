@@ -141,6 +141,54 @@ export async function run() {
     );
     check('the error log is capped so it cannot grow without bound', fatal.includes('256 * 1024'));
 
+    // -- the app can never be invisible --------------------------------------
+
+    /**
+     * The failure this guards against: the tray is a separate WinForms process,
+     * and when it died the agent kept running and serving with no icon and no
+     * window. Reachable, working, and completely invisible — which from the
+     * outside is the same as an app that will not start.
+     */
+    const tray = read('agent/src/tray/index.ts');
+    check('a crashed tray is restarted', tray.includes('tray died unexpectedly'));
+    check(
+      'restarts are bounded rather than looping forever',
+      /#restarts >= 3/.test(tray),
+    );
+    check(
+      'a deliberate Quit is not treated as a crash',
+      tray.includes('#userQuit'),
+    );
+    check(
+      'show() reports whether it actually reached a tray',
+      /show\(\): boolean/.test(tray),
+    );
+    check('tray failures are written somewhere findable', tray.includes('tray.log'));
+
+    const idx2 = read('agent/src/index.ts');
+    check(
+      'a missing tray falls back to the browser instead of doing nothing',
+      /!tray\.available \|\| !tray\.show\(\)/.test(idx2) && idx2.includes('openPairPage'),
+    );
+    check(
+      'the same fallback covers a second launch',
+      /trayRef\?\.show\(\) !== true/.test(idx2),
+    );
+
+    /**
+     * The pairing page carries the single-use code, so serving it to the LAN
+     * would let anyone who can reach the port pair themselves. Verified live
+     * further down as well.
+     */
+    const server = read('agent/src/server.ts');
+    check(
+      'the pairing page is loopback-only',
+      /app\.get\('\/pair'[\s\S]{0,200}isLoopback/.test(server),
+    );
+    const pairpage = read('agent/src/pairpage.ts');
+    check('the pairing page escapes the values it interpolates', pairpage.includes('escapeHtml'));
+    check('the QR is drawn as scalable SVG, not a bitmap', pairpage.includes('shape-rendering="crispEdges"'));
+
     // -- the download page ---------------------------------------------------
 
     const page = read('docs/index.html');
@@ -220,12 +268,23 @@ export async function run() {
         .find((a) => a && !a.internal && (a.family === 'IPv4' || (a.family as unknown as number) === 4))
         ?.address;
 
+      const pair = await fetch('http://127.0.0.1:8829/pair');
+      const html = await pair.text();
+      check('the pairing page renders on loopback', pair.status === 200, `HTTP ${pair.status}`);
+      check('the pairing page contains a QR', html.includes('<svg'));
+
       if (lan) {
         const remote = await fetch(`http://${lan}:8829/api/show`, { method: 'POST' });
         check(
           'the show endpoint refuses a request from the network',
           remote.status === 403,
           `${lan} -> HTTP ${remote.status}`,
+        );
+        const remotePair = await fetch(`http://${lan}:8829/pair`);
+        check(
+          'the pairing page refuses the network, since it holds the pairing code',
+          remotePair.status === 403,
+          `${lan} -> HTTP ${remotePair.status}`,
         );
       }
     } finally {

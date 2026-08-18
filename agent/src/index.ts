@@ -11,6 +11,7 @@ import { color, createLogger, raw, setLogLevel } from './log.js';
 import { getNetworkName, pickLanAddress } from './net.js';
 import { extractClient, isPackaged } from './packaged.js';
 import { reportFatal } from './fatal.js';
+import { openPairPage } from './openbrowser.js';
 import { surfaceExistingInstance } from './singleton.js';
 import { startServer, type StartedServer } from './server.js';
 import { StateHub } from './state.js';
@@ -140,6 +141,19 @@ async function main(): Promise<void> {
   /** Late-bound for the same reason: /api/show needs to reach the tray. */
   let trayRef: Tray | undefined;
 
+  const lanIp = process.env['PCR_LAN_IP'] ?? pickLanAddress();
+  const plainUrl = `http://${lanIp ?? 'localhost'}:${config.current.port}`;
+  /**
+   * Served by /pair. Starts without the network name because netsh takes a
+   * moment, and the page is only reachable once the tray info has been built.
+   */
+  let pairingInfo = {
+    pairUrl: `${plainUrl}/?p=${encodeURIComponent(auth.pairingCode)}`,
+    plainUrl,
+    network: '',
+    pin: config.current.pin,
+  };
+
   const server = await startServer({
     config,
     auth,
@@ -147,7 +161,14 @@ async function main(): Promise<void> {
     router,
     host: hostInfo,
     getThumbnail: () => mediaRef?.thumbnail,
-    onShowWindow: () => trayRef?.show(),
+    /**
+     * A launch while already running comes through here. If the tray is gone the
+     * browser answers instead, so clicking the app always produces something.
+     */
+    onShowWindow: () => {
+      if (trayRef?.show() !== true) openPairPage(config.current.port);
+    },
+    getPairingInfo: () => pairingInfo,
   });
 
   const devPort =
@@ -178,15 +199,16 @@ async function main(): Promise<void> {
    * running exactly as before, with its banner — a worse experience, not a
    * broken one.
    */
-  const lanIp = process.env['PCR_LAN_IP'] ?? pickLanAddress();
-  const plainUrl = `http://${lanIp ?? 'localhost'}:${config.current.port}`;
   const tray = new Tray();
-  const trayInfo = async () => ({
-    pairUrl: `${plainUrl}/?p=${encodeURIComponent(auth.pairingCode)}`,
-    plainUrl,
-    network: await getNetworkName(),
-    pin: config.current.pin,
-  });
+  const trayInfo = async () => {
+    pairingInfo = {
+      pairUrl: `${plainUrl}/?p=${encodeURIComponent(auth.pairingCode)}`,
+      plainUrl,
+      network: await getNetworkName(),
+      pin: config.current.pin,
+    };
+    return pairingInfo;
+  };
 
   trayRef = tray;
   void trayInfo()
@@ -206,7 +228,17 @@ async function main(): Promise<void> {
        * the app existed.
        */
       const quiet = args.startup && config.current.tokens.length > 0;
-      if (tray.available && !quiet) tray.show();
+      if (quiet) return;
+      /**
+       * The browser is the fallback that cannot fail. If the tray did not come
+       * up, the agent is still an HTTP server, and a page it serves is a
+       * perfectly good way to show a QR code — far better than the app running
+       * invisibly with nothing to click.
+       */
+      if (!tray.available || !tray.show()) {
+        log.info('no tray window available; opening the pairing page in the browser');
+        openPairPage(config.current.port);
+      }
     })
     .catch((err) => log.debug('tray unavailable:', err));
 

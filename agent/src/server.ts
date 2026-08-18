@@ -18,6 +18,7 @@ import { createLogger } from './log.js';
 import { findClientDir } from './paths.js';
 import type { StateHub } from './state.js';
 import { WsHub } from './ws.js';
+import { renderPairPage } from './pairpage.js';
 
 const log = createLogger('http');
 
@@ -52,6 +53,11 @@ export interface ServerOptions {
    * after the server is listening.
    */
   onShowWindow?: () => void;
+  /**
+   * Everything the pairing page needs. Also late-bound: the pairing code and the
+   * network name are settled after the server is up.
+   */
+  getPairingInfo?: () => { pairUrl: string; plainUrl: string; network: string; pin: string };
 }
 
 export interface StartedServer {
@@ -65,6 +71,15 @@ export interface StartedServer {
 // ---------------------------------------------------------------------------
 // LAN-only guard
 // ---------------------------------------------------------------------------
+
+/**
+ * Strictly this machine. Used by the two routes that expose the pairing code or
+ * put a window on screen, neither of which any other host should reach.
+ */
+function isLoopback(ip: string): boolean {
+  const addr = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+  return addr === '::1' || addr === '127.0.0.1' || addr.startsWith('127.');
+}
 
 function isLanAddress(ip: string): boolean {
   // Strip the IPv4-mapped-IPv6 prefix Node uses on dual-stack sockets.
@@ -191,9 +206,30 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    * nothing; restricting it to loopback is what matters, because a LAN client
    * being able to throw windows onto someone's screen is a nuisance at best.
    */
+  /**
+   * A pairing page for the PC's own browser.
+   *
+   * The tray window is a nicer way to show a QR code, but it depends on a
+   * WinForms process that can die, and when it does the app has no visible
+   * surface at all — it is running, reachable, and completely invisible. This is
+   * the fallback that cannot break: the agent is already an HTTP server, so it
+   * serves the same information as a page and opens it in the default browser.
+   *
+   * Loopback only, and that restriction is not optional: this page contains the
+   * single-use pairing code. Served to the LAN it would let anyone who could
+   * reach the port fetch a code and pair themselves.
+   */
+  app.get('/pair', async (request, reply) => {
+    if (!isLoopback(request.ip)) {
+      return reply.code(403).type('text/plain').send('This page is only available on the PC itself.');
+    }
+    const info = options.getPairingInfo?.();
+    if (!info) return reply.code(503).type('text/plain').send('Still starting up. Refresh in a moment.');
+    return reply.type('text/html; charset=utf-8').send(renderPairPage(info));
+  });
+
   app.post('/api/show', async (request, reply) => {
-    const ip = request.ip.startsWith('::ffff:') ? request.ip.slice(7) : request.ip;
-    if (ip !== '127.0.0.1' && ip !== '::1' && !ip.startsWith('127.')) {
+    if (!isLoopback(request.ip)) {
       return reply.code(403).send({ error: 'This can only be requested from the PC itself.' });
     }
     options.onShowWindow?.();
