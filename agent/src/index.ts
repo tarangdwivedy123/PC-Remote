@@ -8,7 +8,7 @@ import { parseArgs, printHelp } from './cli.js';
 import { CommandRouter } from './commands.js';
 import { ConfigStore, generatePin } from './config.js';
 import { color, createLogger, raw, setLogLevel } from './log.js';
-import { getNetworkInfo, pickLanAddress } from './net.js';
+import { getNetworkInfo, pickLanAddress, requestPrivateNetwork } from './net.js';
 import { extractClient, isPackaged } from './packaged.js';
 import { reportFatal } from './fatal.js';
 import { openPairPage } from './openbrowser.js';
@@ -142,8 +142,8 @@ async function main(): Promise<void> {
   /** Late-bound for the same reason: /api/show needs to reach the tray. */
   let trayRef: Tray | undefined;
 
-  const lanIp = process.env['PCR_LAN_IP'] ?? pickLanAddress();
-  const plainUrl = `http://${lanIp ?? 'localhost'}:${config.current.port}`;
+  let lanIp = process.env['PCR_LAN_IP'] ?? pickLanAddress();
+  let plainUrl = `http://${lanIp ?? 'localhost'}:${config.current.port}`;
   /**
    * Served by /pair. Starts without the network name because netsh takes a
    * moment, and the page is only reachable once the tray info has been built.
@@ -171,6 +171,7 @@ async function main(): Promise<void> {
       if (trayRef?.show() !== true) openPairPage(config.current.port);
     },
     getPairingInfo: () => pairingInfo,
+    onFixNetwork: () => requestPrivateNetwork(lanIp),
   });
 
   const devPort =
@@ -212,6 +213,30 @@ async function main(): Promise<void> {
       networkCategory: net.category,
     };
     return pairingInfo;
+  };
+
+  /**
+   * Re-checks the LAN address while running.
+   *
+   * DHCP hands out a different address after a lease renewal or a reconnect, and
+   * the QR code is generated once at startup. When that happened the code kept
+   * pointing at an address the PC no longer had, so scanning it led to a page
+   * that never loaded — with nothing to suggest the address was the problem.
+   *
+   * Cheap enough to do often: reading the interface list is local, and the
+   * network category lookup only runs when the address has actually moved.
+   */
+  const watchLanAddress = (): void => {
+    const timer = setInterval(() => {
+      if (process.env['PCR_LAN_IP']) return; // pinned by the user; leave it alone
+      const current = pickLanAddress();
+      if (!current || current === lanIp) return;
+      log.info(`LAN address changed from ${lanIp ?? 'none'} to ${current}; refreshing the QR code`);
+      lanIp = current;
+      plainUrl = `http://${current}:${config.current.port}`;
+      void trayInfo().then((info) => tray.update(info));
+    }, 30_000);
+    timer.unref?.();
   };
 
   trayRef = tray;
@@ -260,6 +285,8 @@ async function main(): Promise<void> {
       }
     })
     .catch((err) => log.debug('tray unavailable:', err));
+
+  watchLanAddress();
 
   /**
    * Stats start last, after the banner is on screen. The URL, QR and PIN are what

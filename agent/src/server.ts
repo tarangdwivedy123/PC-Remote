@@ -58,6 +58,11 @@ export interface ServerOptions {
    * network name are settled after the server is up.
    */
   getPairingInfo?: () => { pairUrl: string; plainUrl: string; network: string; pin: string };
+  /**
+   * Raises a UAC prompt to reclassify the network as Private. Offered only from
+   * the pairing page, and only when the network is the reason nothing works.
+   */
+  onFixNetwork?: () => Promise<boolean>;
 }
 
 export interface StartedServer {
@@ -226,6 +231,20 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     const info = options.getPairingInfo?.();
     if (!info) return reply.code(503).type('text/plain').send('Still starting up. Refresh in a moment.');
     return reply.type('text/html; charset=utf-8').send(renderPairPage(info));
+  });
+
+  /**
+   * Reclassifies the network as Private, with the user's consent via UAC.
+   *
+   * Loopback only, like the page that offers it. The elevation prompt is the
+   * real consent gate — this endpoint can only ask, and Windows decides.
+   */
+  app.post('/api/fix-network', async (request, reply) => {
+    if (!isLoopback(request.ip)) {
+      return reply.code(403).send({ error: 'This can only be requested from the PC itself.' });
+    }
+    const ok = (await options.onFixNetwork?.()) ?? false;
+    return { ok };
   });
 
   app.post('/api/show', async (request, reply) => {

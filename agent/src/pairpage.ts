@@ -90,10 +90,13 @@ export function renderPairPage(info: PairInfo): string {
            <p>Your network${info.network ? ` <b>${escapeHtml(info.network)}</b>` : ''} is set to
            <b>Public</b>, so Windows refuses connections from other devices — including your phone.
            The QR code below cannot work until this is changed.</p>
-           <p class="fix"><b>To fix it:</b> open <b>Settings &rsaquo; Network &amp; internet &rsaquo;
-           Wi-Fi</b>, click the network you are connected to, and choose
-           <b>Private network</b>. Then reload this page.</p>
-           <p class="small">Only do this on a network you trust, such as your home Wi-Fi.</p>
+           <p class="fix"><button id="fix" type="button">Fix this for me</button>
+           <span id="fixmsg"></span></p>
+             <p class="small">Windows will ask for permission. This marks the network as
+             trusted, which is what lets your own devices reach this PC.
+             Only do this on a network you trust, such as your home Wi-Fi.</p>
+           <p class="small">Prefer to do it yourself? <b>Settings &rsaquo; Network &amp; internet
+           &rsaquo; Wi-Fi</b>, click your network, choose <b>Private network</b>.</p>
          </div>`
       : '';
 
@@ -131,6 +134,11 @@ code{display:block;margin:5px 0 12px;padding:9px 11px;border-radius:7px;
 .blocked p:last-child{margin-bottom:0}
 .blocked .fix{padding-top:8px;border-top:1px solid rgba(248,113,113,.25)}
 .blocked .small{color:#9aa1ae;font-size:12.5px}
+.blocked button{padding:9px 16px;border:0;border-radius:8px;background:#f87171;color:#2a0a0a;
+  font:600 14px/1 inherit;cursor:pointer}
+.blocked button:hover{filter:brightness(1.08)}
+.blocked button:disabled{opacity:.55;cursor:default}
+#fixmsg{margin-left:10px;font-size:13px;color:#9aa1ae}
 </style></head><body>
 <div class="card">
   <h1>Connect your phone</h1>
@@ -145,5 +153,25 @@ code{display:block;margin:5px 0 12px;padding:9px 11px;border-radius:7px;
     <code class="pin">${escapeHtml(info.pin)}</code>
   </div>
 </div>
+<script>
+(function(){
+  var b=document.getElementById('fix'), m=document.getElementById('fixmsg');
+  if(!b) return;
+  b.onclick=function(){
+    b.disabled=true; m.textContent='Waiting for your permission…';
+    var x=new XMLHttpRequest();
+    x.open('POST','/api/fix-network',true);
+    x.onreadystatechange=function(){
+      if(x.readyState!==4) return;
+      // The prompt having been raised is not the same as it having been
+      // accepted, so this asks the user to confirm by reloading rather than
+      // claiming success.
+      m.textContent='Approve the Windows prompt, then reload this page.';
+      b.disabled=false;
+    };
+    x.send();
+  };
+})();
+</script>
 </body></html>`;
 }

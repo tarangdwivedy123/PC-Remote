@@ -230,6 +230,34 @@ export async function run() {
       /networkCategory === 'Public'/.test(idx3),
     );
 
+    check('the page offers to fix it rather than only describing the fix', pp.includes('Fix this for me'));
+    check(
+      'fixing it raises a UAC prompt rather than acting silently',
+      net.includes('-Verb RunAs'),
+    );
+    check(
+      'the fix reclassifies the network and never touches the firewall',
+      net.includes('Set-NetConnectionProfile') && !net.includes('advfirewall'),
+    );
+    check(
+      'the fix endpoint is loopback-only',
+      /app\.post\('\/api\/fix-network'[\s\S]{0,200}isLoopback/.test(server),
+    );
+
+    /**
+     * A DHCP renewal hands out a new address, and the QR is generated once at
+     * startup. Without this the code silently points at an address the PC no
+     * longer has, which looks exactly like the app being broken.
+     */
+    check(
+      'the QR is refreshed when the LAN address changes',
+      idx3.includes('LAN address changed') && idx3.includes('tray.update'),
+    );
+    check(
+      'a pinned address is left alone by the watcher',
+      /PCR_LAN_IP'\]\) return;/.test(idx3),
+    );
+
     // -- the download page ---------------------------------------------------
 
     const page = read('docs/index.html');

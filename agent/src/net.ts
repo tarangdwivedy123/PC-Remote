@@ -263,3 +263,68 @@ export async function getNetworkInfo(lanIp?: string): Promise<NetworkInfo> {
     );
   });
 }
+
+/**
+ * Asks Windows to reclassify the current network as Private, via a UAC prompt.
+ *
+ * This is the single most common reason the app appears broken: Windows marks
+ * networks Public by default, a Public network refuses inbound connections, and
+ * the phone is dropped before it reaches the agent. The remedy is a setting
+ * three levels deep in Settings, which is not a reasonable thing to ask of
+ * someone who just wanted a volume slider.
+ *
+ * Deliberately not silent, and deliberately not a firewall change. The user sees
+ * a UAC prompt and approves it, because telling Windows "this is my home
+ * network" genuinely is their decision -- it affects more than this app. Opening
+ * the firewall to public networks instead would fix the symptom by discarding
+ * the guarantee the project rests on.
+ *
+ * @returns false when the elevated helper could not even be launched. A true
+ *          result means the prompt was raised, not that the user accepted it.
+ */
+export async function requestPrivateNetwork(lanIp?: string): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  const { execFile } = await import('node:child_process');
+  const { writeFileSync } = await import('node:fs');
+  const os = await import('node:os');
+  const pathMod = await import('node:path');
+
+  const safeIp = lanIp && /^\d{1,3}(\.\d{1,3}){3}$/.test(lanIp) ? lanIp : '';
+
+  /**
+   * Written to a file rather than passed as a nested command string: this has to
+   * survive being quoted by Start-Process for elevation, and nesting quotes
+   * through two layers of PowerShell is where this kind of thing breaks.
+   */
+  const helper = pathMod.join(os.tmpdir(), 'pcr-set-private.ps1');
+  const body = safeIp
+    ? [
+        "$a = (Get-NetIPAddress -IPAddress '" + safeIp + "' -AddressFamily IPv4 | Select-Object -First 1).InterfaceAlias",
+        'if ($a) { Set-NetConnectionProfile -InterfaceAlias $a -NetworkCategory Private }',
+      ].join('\n')
+    : [
+        "Get-NetConnectionProfile | Where-Object { $_.NetworkCategory -eq 'Public' } |",
+        'Set-NetConnectionProfile -NetworkCategory Private',
+      ].join(' ');
+
+  try {
+    writeFileSync(helper, body, 'utf8');
+  } catch {
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList ` +
+          `'-NoProfile','-ExecutionPolicy','Bypass','-File','${helper}'`,
+      ],
+      { timeout: 30000, windowsHide: true },
+      (err) => resolve(!err),
+    );
+  });
+}

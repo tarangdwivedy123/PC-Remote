@@ -242,9 +242,20 @@ export async function run() {
       patches.filter((p) => p.sample !== undefined).length >= 3,
       `${patches.filter((p) => p.sample !== undefined).length} of ${patches.length} carried a sample`,
     );
+    /**
+     * Asserts the diffing mechanism, using a field that provably changes.
+     *
+     * This used to require a changed CPU load, and failed on roughly two runs
+     * in three: on an idle machine the rounded load really is identical tick
+     * after tick, so no patch carries it -- that is the diff working, not
+     * failing. Uptime advances every second by definition, so it tests the
+     * same mechanism without depending on how busy the machine happens to be.
+     */
+    const withUptime = patches.filter((p) => p.patch?.stats?.uptimeSec !== undefined).length;
     check(
-      'deltas include the changed CPU load',
-      patches.some((p) => p.patch?.stats?.cpu?.loadPct !== undefined),
+      'deltas carry the fields that actually changed',
+      withUptime === patches.length,
+      `${withUptime} of ${patches.length} patches carried the advancing uptime`,
     );
     /**
      * The delta must not resend the whole stats object every tick. Static fields
