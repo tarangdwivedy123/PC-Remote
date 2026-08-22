@@ -267,26 +267,50 @@ export async function run() {
      * level. Leaving "pc-remote verification" sitting there is a small thing
      * that is nonetheless the suite's mess to clean up.
      */
-    const beforeClipboard = (await read())?.system?.clipboard ?? '';
-    const clip = await command({ kind: 'system.sendText', text: 'pc-remote verification' });
-    check('text can be sent to the clipboard', clip.ok, clip.error);
-    await new Promise((r) => setTimeout(r, 600));
-    check(
-      'the clipboard mirror reflects what was just sent',
-      (await read())?.system?.clipboard === 'pc-remote verification',
-    );
-    if (beforeClipboard) {
-      await command({ kind: 'system.sendText', text: beforeClipboard });
+    /**
+     * Windows refuses all clipboard access while the workstation is locked,
+     * so these cannot pass there -- and reporting them as failures hides real
+     * ones. Detected by the presence of LogonUI, which owns the lock screen.
+     */
+    const locked = await (async () => {
+      if (process.platform !== "win32") return false;
+      const { execFileSync } = await import("node:child_process");
+      try {
+        const out = execFileSync("tasklist", ["/FI", "IMAGENAME eq LogonUI.exe", "/NH"], {
+          encoding: "utf8",
+            maxBuffer: 1 << 20,
+        });
+        return /LogonUI\.exe/i.test(out);
+      } catch {
+        return false;
+      }
+    })();
+
+    if (locked) {
+      console.log("        \x1b[2m(workstation locked; Windows denies all clipboard access, skipping)\x1b[0m");
+    } else {
+      const beforeClipboard = (await read())?.system?.clipboard ?? '';
+      const clip = await command({ kind: 'system.sendText', text: 'pc-remote verification' });
+      check('text can be sent to the clipboard', clip.ok, clip.error);
       await new Promise((r) => setTimeout(r, 600));
       check(
-        'the clipboard is restored to what it held before',
-        (await read())?.system?.clipboard === beforeClipboard,
+        'the clipboard mirror reflects what was just sent',
+        (await read())?.system?.clipboard === 'pc-remote verification',
       );
-    } else {
-      // Nothing to restore, but the marker should not be left behind either.
-      await command({ kind: 'system.sendText', text: ' ' });
-      console.log('        \x1b[2m(clipboard was empty beforehand; cleared rather than restored)\x1b[0m');
+      if (beforeClipboard) {
+        await command({ kind: 'system.sendText', text: beforeClipboard });
+        await new Promise((r) => setTimeout(r, 600));
+        check(
+          'the clipboard is restored to what it held before',
+          (await read())?.system?.clipboard === beforeClipboard,
+        );
+      } else {
+        // Nothing to restore, but the marker should not be left behind either.
+        await command({ kind: 'system.sendText', text: ' ' });
+        console.log('        \x1b[2m(clipboard was empty beforehand; cleared rather than restored)\x1b[0m');
+      }
     }
+
     check('an empty clipboard send is rejected', !(await command({ kind: 'system.sendText', text: '' })).ok);
 
     const arm = await command({ kind: 'system.sleepTimer', minutes: 45 });

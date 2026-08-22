@@ -13,7 +13,7 @@ import { extractClient, isPackaged } from './packaged.js';
 import { reportFatal } from './fatal.js';
 import { openPairPage } from './openbrowser.js';
 import type { PairInfo } from './pairpage.js';
-import { surfaceExistingInstance } from './singleton.js';
+import { exitQuietly, surfaceExistingInstance } from './singleton.js';
 import { startServer, type StartedServer } from './server.js';
 import { StateHub } from './state.js';
 import { StatsSampler } from './stats/index.js';
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
    * Hand the request to the copy that owns the port and stand down, rather than
    * failing to bind and dying where nobody can see it.
    */
-  if (await surfaceExistingInstance(config.current.port)) return;
+  if (await surfaceExistingInstance(config.current.port)) exitQuietly();
 
   if (process.platform !== 'win32') {
     log.warn(

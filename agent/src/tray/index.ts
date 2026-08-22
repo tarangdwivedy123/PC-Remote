@@ -86,7 +86,6 @@ export interface TrayInfo {
 export class Tray {
   #child: TrayChild | undefined;
   #buffer = '';
-  #nextId = 1;
   #ready = false;
   #stopped = false;
   #onQuit: (() => void) | undefined;
@@ -199,13 +198,15 @@ export class Tray {
   /** Pushes a fresh QR and address. Called again whenever the code rotates. */
   update(info: TrayInfo): void {
     this.#lastInfo = info;
-    this.#send({
-      cmd: 'update',
-      modules: qrMatrix(info.pairUrl).map((row) => row.map((dark) => (dark ? 1 : 0))),
-      url: info.plainUrl,
-      network: info.network,
-      pin: info.pin,
-    });
+    /**
+     * The grid travels as rows of 0/1 joined by semicolons. The tray has no QR
+     * encoder of its own on purpose -- a second implementation could disagree
+     * with this one -- and this shape needs no parser on the far side.
+     */
+    const grid = qrMatrix(info.pairUrl)
+      .map((row) => row.map((dark) => (dark ? '1' : '0')).join(''))
+      .join(';');
+    this.#send(['update', info.plainUrl, info.network, info.pin, grid]);
   }
 
   /**
@@ -216,11 +217,11 @@ export class Tray {
    *          exactly how this went wrong before.
    */
   show(): boolean {
-    return this.#send({ cmd: 'show' });
+    return this.#send(['show']);
   }
 
   notify(title: string, text: string): void {
-    this.#send({ cmd: 'balloon', title, text });
+    this.#send(['balloon', title, text]);
   }
 
   stop(): void {
@@ -229,7 +230,7 @@ export class Tray {
     this.#child = undefined;
     if (!child) return;
     try {
-      child.stdin.write(`${JSON.stringify({ cmd: 'quit' })}\n`);
+      child.stdin.write('quit' + '\n');
       child.stdin.end();
     } catch {
       // Already gone.
@@ -239,11 +240,18 @@ export class Tray {
     setTimeout(() => child.kill(), 400).unref?.();
   }
 
-  #send(payload: Record<string, unknown>): boolean {
+  /**
+   * @param parts command name followed by its arguments, joined with tabs.
+   *              Tabs and newlines are stripped rather than escaped: no field
+   *              sent here can legitimately contain one, and a mangled label is
+   *              a far better outcome than a desynchronised protocol.
+   */
+  #send(parts: string[]): boolean {
     const child = this.#child;
     if (!child || !this.#ready) return false;
+    const line = parts.map((part) => String(part).replace(/[\t\r\n]/g, ' ')).join('\t');
     try {
-      child.stdin.write(`${JSON.stringify({ id: this.#nextId++, ...payload })}\n`);
+      child.stdin.write(line + '\n');
       return true;
     } catch (err) {
       log.debug('tray write failed:', err);
@@ -259,19 +267,17 @@ export class Tray {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed === '' || !trimmed.startsWith('{')) continue;
-      try {
-        const msg = JSON.parse(trimmed) as Record<string, unknown>;
-        if (msg['ready'] === true) this.#ready = true;
-        if (msg['ok'] === false) trace(`tray reported an error: ${String(msg['error'])}`);
-        if (msg['quit'] === true) {
-          this.#userQuit = true;
-          log.info('quit requested from the tray');
-          this.#onQuit?.();
-        }
-      } catch {
-        // Non-JSON noise from PowerShell is not worth reporting.
+      if (trimmed === '') continue;
+      if (trimmed === 'ready') {
+        this.#ready = true;
+      } else if (trimmed === 'quit') {
+        this.#userQuit = true;
+        log.info('quit requested from the tray');
+        this.#onQuit?.();
+      } else if (trimmed.startsWith('err ')) {
+        trace(`tray reported an error: ${trimmed.slice(4)}`);
       }
+      // Anything else is noise from PowerShell and not worth reporting.
     }
   }
 }

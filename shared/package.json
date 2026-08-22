@@ -1,7 +1,7 @@
 {
   "name": "@pcr/shared",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Types and wire protocol shared by the agent and the phone client. Intentionally has ZERO runtime dependencies so it adds nothing to the mobile bundle.",
   "exports": {

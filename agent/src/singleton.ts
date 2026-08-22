@@ -48,3 +48,16 @@ export async function surfaceExistingInstance(port: number): Promise<boolean> {
   log.info('another copy is already running; asked it to show its QR code');
   return true;
 }
+
+/**
+ * Ends this process now, without waiting for the event loop to drain.
+ *
+ * Returning normally can leave the launcher alive for a noticeable extra moment:
+ * fetch keeps its connection pool open, and Node will not exit while a socket is
+ * still held. Nothing here has state worth flushing -- the only job was to tell
+ * the running copy to show itself -- and every extra moment is time the user
+ * spends looking at nothing and clicking again.
+ */
+export function exitQuietly(): never {
+  process.exit(0);
+}

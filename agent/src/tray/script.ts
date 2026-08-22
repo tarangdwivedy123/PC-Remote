@@ -6,8 +6,13 @@
  * blocking read loop, and a window that stops pumping stops repainting and gets
  * marked "not responding" by Windows.
  *
- * Same JSON-lines protocol as the interop host, so the agent talks to both the
- * same way.
+ * The C# owns everything -- pump, command reader, watchdog -- and PowerShell is
+ * only the compiler and launcher. An earlier version drove the pump from
+ * PowerShell with DoEvents between reads, which left the window barely pumping
+ * at all: it answered the agent in under 50ms while failing to answer a WM_NULL
+ * ping within three seconds.
+ *
+ * Commands are tab-separated lines rather than JSON so the C# needs no parser.
  */
 export const TRAY_SCRIPT = String.raw`
 param([int]$ParentPid = 0)
@@ -18,9 +23,9 @@ Add-Type -AssemblyName System.Drawing
 
 Add-Type -Language CSharp -ReferencedAssemblies @('System.Windows.Forms','System.Drawing') -TypeDefinition @'
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace PcrTray {
@@ -58,6 +63,16 @@ namespace PcrTray {
       DoubleBuffered = true;
     }
 
+    /**
+     * Stops being a nuisance once it has been seen: it is raised above other
+     * windows to get noticed, then steps back to normal z-order as soon as the
+     * user clicks something else.
+     */
+    protected override void OnDeactivate(EventArgs e) {
+      TopMost = false;
+      base.OnDeactivate(e);
+    }
+
     protected override void OnPaint(PaintEventArgs e) {
       base.OnPaint(e);
       var g = e.Graphics;
@@ -71,7 +86,7 @@ namespace PcrTray {
       using (var grey = new SolidBrush(Color.FromArgb(105, 112, 122))) {
 
         g.DrawString("Scan this with your phone", title, dark, 24, 20);
-        g.DrawString("Point your phone's camera at the code and tap the link.",
+        g.DrawString("Point your phone camera at the code and tap the link.",
                      body, grey, 24, 52);
 
         // The QR itself. Quiet zone included: a code drawn flush to a border is
@@ -112,7 +127,7 @@ namespace PcrTray {
           cursor += 60;
         }
 
-        g.DrawString("Or type this address into your phone's browser:", small, grey, 24, cursor);
+        g.DrawString("Or type this address into your phone browser:", small, grey, 24, cursor);
         g.DrawString(url, mono, dark, 24, cursor + 18);
         if (!string.IsNullOrEmpty(pin)) {
           g.DrawString("then enter PIN  " + pin, small, grey, 24, cursor + 42);
@@ -122,36 +137,60 @@ namespace PcrTray {
   }
 
   /**
-   * Tray presence.
+   * Tray presence, and the whole of the tray process logic.
    *
-   * Without this the agent is an invisible background process: no way to see
-   * whether it is running, no way to get the QR back once the window is closed,
-   * and no way to stop it short of Task Manager. That gap is most of the
-   * difference between a script and something that can be handed to somebody.
+   * This owns the message pump, the command reader and the parent watchdog.
+   *
+   * The previous arrangement was a PowerShell loop calling DoEvents between
+   * other work. It answered the agent quickly, so it looked healthy, but the
+   * window itself barely pumped messages: it would not answer a WM_NULL ping
+   * within three seconds. A window that does not pump does not repaint, does not
+   * respond to clicks, and gets marked "not responding" by Windows -- which is
+   * what made the app feel laggy and take several clicks to open.
+   *
+   * Application.Run gives the window a real pump. Commands arrive on a
+   * background thread and are marshalled onto the UI thread, so reading input
+   * can never block painting again.
    */
   public class Tray : ApplicationContext {
     readonly NotifyIcon icon;
+    /** Hidden window, used only as a thread marshalling target for BeginInvoke. */
+    readonly Form marshaller;
+    readonly object writeLock = new object();
+
     bool[][] modules;
     string url = "";
     string network = "";
     string pin = "";
     QrForm window;
+    IntPtr parentHandle = IntPtr.Zero;
 
-    /**
-     * Polled by the host script rather than raised as an event.
-     *
-     * PowerShell runs Register-ObjectEvent handlers in a separate runspace, which
-     * cannot safely touch WinForms objects living on this STA thread — an event
-     * that tried to open the window from there did nothing at all. Everything the
-     * menu does is handled here, on the UI thread, and only this flag crosses
-     * back.
-     */
-    public volatile bool QuitFlag = false;
+    [DllImport("user32.dll", EntryPoint = "ShowWindow")]
+    static extern bool ShowWindowNative(IntPtr hWnd, int nCmdShow);
 
-    public Tray() {
+    [DllImport("user32.dll")]
+    static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+
+    [DllImport("kernel32.dll")]
+    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    public Tray(int parentPid) {
+      marshaller = new Form();
+      marshaller.FormBorderStyle = FormBorderStyle.None;
+      marshaller.ShowInTaskbar = false;
+      marshaller.StartPosition = FormStartPosition.Manual;
+      marshaller.Location = new Point(-32000, -32000);
+      marshaller.Size = new Size(1, 1);
+      // Force the handle into existence: BeginInvoke needs one, and this window
+      // is never shown.
+      IntPtr unused = marshaller.Handle;
+
       var menu = new ContextMenuStrip();
-      menu.Items.Add("Show QR code", null, (s, e) => ShowWindow());
-      menu.Items.Add("Open dashboard on this PC", null, (s, e) => {
+      menu.Items.Add("Show QR code", null, delegate { ShowWindow(); });
+      menu.Items.Add("Open dashboard on this PC", null, delegate {
         try {
           var psi = new System.Diagnostics.ProcessStartInfo(url);
           psi.UseShellExecute = true;
@@ -159,31 +198,131 @@ namespace PcrTray {
         } catch { }
       });
       menu.Items.Add(new ToolStripSeparator());
-      menu.Items.Add("Quit PC Remote", null, (s, e) => { QuitFlag = true; });
+      menu.Items.Add("Quit PC Remote", null, delegate {
+        Emit("quit");
+        ExitThread();
+      });
 
-      icon = new NotifyIcon {
-        Icon = SystemIcons.Application,
-        Text = "PC Remote",
-        Visible = true,
-        ContextMenuStrip = menu,
-      };
-      icon.DoubleClick += (s, e) => ShowWindow();
+      icon = new NotifyIcon();
+      icon.Icon = SystemIcons.Application;
+      icon.Text = "PC Remote";
+      icon.Visible = true;
+      icon.ContextMenuStrip = menu;
+      icon.DoubleClick += delegate { ShowWindow(); };
+
+      /**
+       * Watchdog for the agent. SYNCHRONIZE plus a zero-timeout wait costs a few
+       * microseconds, unlike the Get-Process call it replaces, which measured
+       * 3.6ms and ran on the same thread as the message pump.
+       *
+       * A backstop only: the primary signal is standard input closing, which
+       * happens the moment the agent dies.
+       */
+      if (parentPid > 0) {
+        parentHandle = OpenProcess(0x00100000 /* SYNCHRONIZE */, false, parentPid);
+        if (parentHandle != IntPtr.Zero) {
+          var watchdog = new System.Windows.Forms.Timer();
+          watchdog.Interval = 3000;
+          watchdog.Tick += delegate {
+            if (WaitForSingleObject(parentHandle, 0) == 0 /* WAIT_OBJECT_0 */) ExitThread();
+          };
+          watchdog.Start();
+        }
+      }
     }
 
     public void SetIcon(Icon custom) {
       if (custom != null) icon.Icon = custom;
     }
 
-    public void Update(bool[][] m, string u, string n, string p) {
-      modules = m; url = u; network = n; pin = p;
-      icon.Text = "PC Remote — " + u;
+    /** Writes one protocol line to the agent. Locked: called from two threads. */
+    void Emit(string line) {
+      lock (writeLock) {
+        try {
+          Console.Out.WriteLine(line);
+          Console.Out.Flush();
+        } catch { }
+      }
     }
 
-    [DllImport("user32.dll", EntryPoint = "ShowWindow")]
-    static extern bool ShowWindowNative(IntPtr hWnd, int nCmdShow);
+    public void Ready() {
+      Emit("ready");
+    }
 
-    [DllImport("user32.dll")]
-    static extern bool SetForegroundWindow(IntPtr hWnd);
+    /**
+     * Reads commands on a background thread.
+     *
+     * Deliberately not on the UI thread. Reading input there is what stalled the
+     * pump before: the loop alternated between waiting for a line and briefly
+     * pumping messages, so the window spent most of its life not listening to
+     * Windows at all.
+     */
+    public void StartReader() {
+      var thread = new Thread(delegate () {
+        try {
+          string line;
+          while ((line = Console.In.ReadLine()) != null) {
+            string captured = line;
+            try {
+              marshaller.BeginInvoke((Action)delegate { Dispatch(captured); });
+            } catch {
+              return;   // the UI thread is gone; nothing left to deliver to
+            }
+          }
+        } catch { }
+
+        // Standard input closed, which means the agent exited.
+        try {
+          marshaller.BeginInvoke((Action)delegate { ExitThread(); });
+        } catch { }
+      });
+      thread.IsBackground = true;
+      thread.Start();
+    }
+
+    /**
+     * Tab-separated commands rather than JSON, so this side needs no parser.
+     * The agent is the only thing that ever writes here, and none of the fields
+     * it sends can contain a tab.
+     */
+    void Dispatch(string line) {
+      try {
+        string[] parts = line.Split('\t');
+        if (parts[0] == "show") {
+          ShowWindow();
+        } else if (parts[0] == "update" && parts.Length >= 5) {
+          Update(ParseQr(parts[4]), parts[1], parts[2], parts[3]);
+        } else if (parts[0] == "balloon" && parts.Length >= 3) {
+          Balloon(parts[1], parts[2]);
+        } else if (parts[0] == "quit") {
+          ExitThread();
+        }
+      } catch (Exception ex) {
+        Emit("err " + ex.Message.Replace('\t', ' ').Replace('\n', ' '));
+      }
+    }
+
+    /**
+     * Rows of "0" and "1" separated by semicolons.
+     *
+     * The agent already has a QR encoder, and a second implementation here could
+     * disagree with it, so the finished grid is sent rather than the text.
+     */
+    static bool[][] ParseQr(string encoded) {
+      string[] rows = encoded.Split(';');
+      var grid = new bool[rows.Length][];
+      for (int y = 0; y < rows.Length; y++) {
+        string row = rows[y];
+        grid[y] = new bool[row.Length];
+        for (int x = 0; x < row.Length; x++) grid[y][x] = row[x] == '1';
+      }
+      return grid;
+    }
+
+    public void Update(bool[][] m, string u, string n, string p) {
+      modules = m; url = u; network = n; pin = p;
+      icon.Text = "PC Remote - " + u;
+    }
 
     public void ShowWindow() {
       if (modules == null) return;
@@ -197,14 +336,25 @@ namespace PcrTray {
        * Form.Show() alone is not enough here, and the reason is not obvious.
        *
        * The agent starts this process with the console hidden, which puts
-       * SW_HIDE into its STARTUPINFO. Windows applies that value to the
-       * process's FIRST ShowWindow call in place of whatever was requested, so
-       * the first window opened comes up correctly sized and positioned but
-       * invisible. Calling through to the API directly spends that one
-       * substitution and then shows the window for real.
+       * SW_HIDE into its STARTUPINFO. Windows applies that value to the process
+       * FIRST ShowWindow call in place of whatever was requested, so the first
+       * window opened comes up correctly sized and positioned but invisible.
+       * Calling through to the API directly spends that one substitution and
+       * then shows the window for real.
        */
       ShowWindowNative(window.Handle, 5 /* SW_SHOW */);
       window.WindowState = FormWindowState.Normal;
+
+      /**
+       * TopMost is what actually raises it.
+       *
+       * SetForegroundWindow is unreliable by design: Windows refuses to let a
+       * background process steal focus, and this is a background process. So the
+       * window was opening correctly but behind whatever the user was looking
+       * at, which is indistinguishable from the click having done nothing -- and
+       * the natural response is to click again, launching another copy.
+       */
+      window.TopMost = true;
       window.BringToFront();
       SetForegroundWindow(window.Handle);
       window.Activate();
@@ -222,6 +372,8 @@ namespace PcrTray {
         // until the user hovers over it.
         icon.Visible = false;
         icon.Dispose();
+        if (window != null && !window.IsDisposed) window.Dispose();
+        marshaller.Dispose();
       }
       base.Dispose(disposing);
     }
@@ -229,76 +381,19 @@ namespace PcrTray {
 }
 '@
 
-$tray = New-Object PcrTray.Tray
+$tray = New-Object PcrTray.Tray $ParentPid
 
 $iconPath = Join-Path ([System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)) 'pcr-tray.ico'
 if (Test-Path $iconPath) {
   try { $tray.SetIcon((New-Object System.Drawing.Icon $iconPath)) } catch { }
 }
 
-function Write-Line($obj) {
-  [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 6))
-  [Console]::Out.Flush()
-}
+$tray.StartReader()
+$tray.Ready()
 
-Write-Line @{ ready = $true }
-
-# Everything the menu does happens inside the C# on this thread. The loop only
-# pumps messages, reads commands, and watches the quit flag -- no
-# Register-ObjectEvent, whose handlers run in a separate runspace and silently
-# fail to touch WinForms objects living here.
-$reader = [Console]::In
-$pending = $null
-$running = $true
-
-while ($running) {
-  [System.Windows.Forms.Application]::DoEvents()
-
-  if ($tray.QuitFlag) { break }
-
-  # Non-blocking read. A blocking ReadLine would stop the message pump, and a
-  # window that stops pumping stops repainting and gets marked "not responding".
-  if ($null -eq $pending) { $pending = $reader.ReadLineAsync() }
-  if ($pending.Wait(40)) {
-    $line = $pending.Result
-    $pending = $null
-    if ($null -eq $line) { break }
-    if ($line.Trim() -ne '') {
-      try {
-        $req = $line | ConvertFrom-Json
-        switch ($req.cmd) {
-          'update' {
-            # The grid arrives as rows of 0/1 so the tray needs no QR encoder of
-            # its own; the agent already has one, and two could disagree.
-            $rows = New-Object 'bool[][]' $req.modules.Count
-            for ($i = 0; $i -lt $req.modules.Count; $i++) {
-              $row = $req.modules[$i]
-              $arr = New-Object 'bool[]' $row.Count
-              for ($j = 0; $j -lt $row.Count; $j++) { $arr[$j] = [bool]$row[$j] }
-              $rows[$i] = $arr
-            }
-            $tray.Update($rows, [string]$req.url, [string]$req.network, [string]$req.pin)
-            Write-Line @{ id = $req.id; ok = $true }
-          }
-          'show'    { $tray.ShowWindow(); Write-Line @{ id = $req.id; ok = $true } }
-          'balloon' { $tray.Balloon([string]$req.title, [string]$req.text); Write-Line @{ id = $req.id; ok = $true } }
-          'quit'    { $running = $false }
-          default   { Write-Line @{ id = $req.id; ok = $false; error = 'unknown command' } }
-        }
-      } catch {
-        Write-Line @{ ok = $false; error = $_.Exception.Message }
-      }
-    }
-  }
-
-  # Same liveness guard the interop host uses: if the agent dies, its tray icon
-  # must not outlive it and offer to control a PC that nothing is listening to.
-  if ($ParentPid -gt 0) {
-    if ($null -eq (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
-  }
-}
-
-Write-Line @{ quit = $true }
+# A real message pump. The window is responsive for as long as this runs, and it
+# returns only when the tray asks to exit -- the user picking Quit, the agent
+# closing standard input, or the watchdog noticing the agent has gone.
+[System.Windows.Forms.Application]::Run($tray)
 $tray.Dispose()
-[System.Windows.Forms.Application]::DoEvents()
 `;

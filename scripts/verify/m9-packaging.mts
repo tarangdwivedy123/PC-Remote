@@ -165,6 +165,34 @@ export async function run() {
     );
     check('tray failures are written somewhere findable', tray.includes('tray.log'));
 
+    /**
+     * The tray must own a real message pump.
+     *
+     * It previously drove WinForms from PowerShell with DoEvents between reads.
+     * That answered the agent in under 50ms, so it looked healthy, while the
+     * window failed to answer a WM_NULL ping within three seconds -- meaning it
+     * was not repainting or handling clicks. That is what made the app feel
+     * laggy and take several clicks to open.
+     */
+    const trayScript = read('agent/src/tray/script.ts');
+    check('the window runs on a real message pump', trayScript.includes('Application]::Run'));
+    check(
+      'the pump is never used for polling',
+      !trayScript.includes('DoEvents()'),
+    );
+    check(
+      'commands are read off the UI thread and marshalled onto it',
+      trayScript.includes('StartReader') && trayScript.includes('BeginInvoke'),
+    );
+    check(
+      'the parent check is a handle wait, not a Get-Process on the UI thread',
+      trayScript.includes('WaitForSingleObject') && !/Get-Process -Id \$ParentPid/.test(trayScript),
+    );
+    check(
+      'the window is raised with TopMost, since a background process cannot take focus',
+      trayScript.includes('window.TopMost = true'),
+    );
+
     const idx2 = read('agent/src/index.ts');
     check(
       'a missing tray falls back to the browser instead of doing nothing',

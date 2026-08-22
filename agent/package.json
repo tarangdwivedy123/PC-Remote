@@ -1,7 +1,7 @@
 {
   "name": "@pcr/agent",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "LAN-only remote control agent. Runs on the Windows PC, serves the phone client.",
   "main": "dist/agent.mjs",
